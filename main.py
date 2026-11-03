@@ -4763,11 +4763,36 @@ async def cmd_restart_bot(message: Message):
     os.execl(python_exe, python_exe, *sys.argv)
 
 
+# ===================== CLOUD / RENDER WEB SERVICE HEALTH CHECK =====================
+async def start_dummy_health_server():
+    port_str = os.getenv("PORT")
+    if not port_str:
+        return
+    try:
+        from aiohttp import web
+        port = int(port_str)
+        app = web.Application()
+
+        async def handle_ping(request):
+            return web.Response(text="Movie Land Ultra Bot is alive 24/7! 🎬", content_type="text/plain")
+
+        app.router.add_get("/", handle_ping)
+        app.router.add_get("/health", handle_ping)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logging.info(f"Render/Cloud HTTP Health server listening on port {port}")
+    except Exception as e:
+        logging.warning(f"Could not start cloud health server on port {port_str}: {e}")
+
+
 # ===================== ASOSIY ISHGA TUSHIRISH =====================
 async def main():
     global BOT_USERNAME
     single_instance_guard()
     try:
+        await start_dummy_health_server()
         await db.init_db()
         dp.include_router(eco_router)
         dp.include_router(fallback_router)
