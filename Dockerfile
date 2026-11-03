@@ -3,7 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONIOENCODING=utf-8
+    PYTHONIOENCODING=utf-8 \
+    PORT=7860
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 procps curl \
@@ -13,5 +14,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# Hugging Face va Cloud platformalar uchun xavfsiz ruxsatlar
+RUN useradd -m -u 1000 user && \
+    chown -R user:user /app && \
+    chmod -R 777 /app
+
+USER user
+
+EXPOSE 7860
 
 CMD ["python", "main.py"]
