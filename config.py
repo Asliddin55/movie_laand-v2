@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+if not BOT_TOKEN or "AAG5oWq4Pq6izB2tE3qS7AQszVySxoHsQyA" in BOT_TOKEN:
+    BOT_TOKEN = "8114551358:AAHz2RKZRuXt0ao2AfsOMFUgCFUMPzNEFy4"
 ADMINS_RAW = os.getenv("ADMINS", "")
 
 ADMINS = [int(admin_id.strip()) for admin_id in ADMINS_RAW.replace(",", " ").split() if admin_id.strip().isdigit()]

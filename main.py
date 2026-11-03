@@ -4768,6 +4768,9 @@ async def start_dummy_health_server():
     port_str = os.getenv("PORT")
     if not port_str:
         return
+    # Agar Gradio (app.py) orqali ishlayotgan bo'lsa, Gradio o'zi portni boshqaradi
+    if "gradio" in sys.modules or os.path.basename(sys.argv[0]) == "app.py":
+        return
     try:
         from aiohttp import web
         port = int(port_str)

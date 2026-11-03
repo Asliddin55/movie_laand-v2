@@ -4,13 +4,18 @@ import asyncio
 import threading
 import logging
 import gradio as gr
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
 def start_bot_loop():
     import main
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        asyncio.run(main.main())
+        loop.run_until_complete(main.main())
     except Exception as e:
         logging.error(f"Bot loop error: {e}")
 
