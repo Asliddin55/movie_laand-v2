@@ -1,3 +1,14 @@
+---
+title: Movieland Bot
+emoji: 🎬
+colorFrom: indigo
+colorTo: purple
+sdk: gradio
+sdk_version: 5.20.0
+app_file: app.py
+pinned: false
+---
+
 # 🎬 Movie Land Telegram Bot (v2.0 Ultimate Edition)
 
 Telegram orqali kino va seriallarni qidirish, avtomatik TheMovieDB posterlari, ko'p qismli kinolarni jamlash, mavzuli guruh (forum) ekotizimi, VIP iqtisodiyoti va kuchli admin paneli bilan jihozlangan professional Telegram bot.
