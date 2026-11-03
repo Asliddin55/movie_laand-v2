@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  movieland-bot:
+    build: .
+    container_name: movieland_ultra_bot
+    restart: always
+    volumes:
+      - ./database.db:/app/database.db
+      - ./archive_backup.db:/app/archive_backup.db
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8

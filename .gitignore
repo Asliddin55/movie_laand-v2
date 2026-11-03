@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment variables & secrets (CRITICAL for Telegram security)
+.env
+
+# Process & Lock files
+bot.pid
+*.pid
+*.lock
+
+# Logs
+*.log
+
+# SQLite database temporary files & WAL
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Automated Backups
+backups/
+
+# OS specific files
+Thumbs.db
+.DS_Store

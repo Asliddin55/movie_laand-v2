@@ -1,0 +1,18 @@
+[Unit]
+Description=Movie Land Ultra Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/MovieLand
+ExecStart=/usr/bin/python3 /var/www/MovieLand/main.py
+Restart=always
+RestartSec=5
+KillMode=process
+TimeoutStopSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+
+[Install]
+WantedBy=multi-user.target
