@@ -1325,10 +1325,32 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
         pnum = int(ep_m.group(1)) if ep_m else 1
         return {"is_serial": 1, "base_title": "Envel Qahramonlari", "part_num": pnum}
 
-    if any(k in norm_n for k in ["serial", "seriya", "fasl", "sezon"]):
-        ep_m = re.search(r"\b(\d{1,3})\s*[-–]?\s*(?:qism|seriya|epizod)", raw_n, flags=re.IGNORECASE)
+    if "iztopar" in norm_n or "iztopar" in blob:
+        ep_m = (
+            re.search(r"\d+F\d+Q(\d+)Q", file_name) or
+            re.search(r"\d+F(\d+)Q", file_name) or
+            re.search(r"[sS]\d+[eE](\d+)", file_name) or
+            re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_n, flags=re.IGNORECASE) or
+            re.search(r"(?:qism|seriya|epizod)[\s:=-]*(\d+)", raw_caption, flags=re.IGNORECASE) or
+            re.search(r"(\d+)\s*[-–]?\s*qism", raw_caption, flags=re.IGNORECASE)
+        )
         pnum = int(ep_m.group(1)) if ep_m else 1
-        btitle = re.sub(r"\b\d{1,3}\s*[-–]?\s*(?:qism|seriya|epizod).*$", "", raw_n, flags=re.IGNORECASE).strip(" -–:,.")
+        return {"is_serial": 1, "base_title": "Iztopar Afsonasi", "part_num": pnum}
+
+    if any(k in norm_n or k in blob for k in ["serial", "seriya", "fasl", "sezon"]):
+        ep_m = (
+            re.search(r"\d+F\d+Q(\d+)Q", file_name) or
+            re.search(r"\d+F(\d+)Q", file_name) or
+            re.search(r"[sS]\d+[eE](\d+)", file_name) or
+            re.search(r"\b(\d{1,3})\s*[-–]?\s*(?:qism|seriya|epizod)", raw_n, flags=re.IGNORECASE) or
+            re.search(r"(?:qism|seriya|epizod)[\s:=-]*(\d+)", raw_caption, flags=re.IGNORECASE) or
+            re.search(r"(\d+)\s*[-–]?\s*(?:qism|seriya|epizod)", raw_caption, flags=re.IGNORECASE)
+        )
+        pnum = int(ep_m.group(1)) if ep_m else 1
+        btitle = raw_n
+        btitle = re.sub(r"^[\W_]*serial[\W_:]*", "", btitle, flags=re.IGNORECASE).strip()
+        btitle = re.sub(r"\b\d{1,3}\s*[-–]?\s*(?:qism|seriya|epizod).*$", "", btitle, flags=re.IGNORECASE).strip(" -–:,.")
+        btitle = re.sub(r"^[^\w\s]+", "", btitle).strip()
         return {"is_serial": 1, "base_title": btitle or raw_n, "part_num": pnum}
 
     # 2. Ko'p qismli mashhur kinolar franshizalarini yagona base_title ostida va to'g'ri 1, 2, 3... tartibda birlashtirish

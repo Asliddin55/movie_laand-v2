@@ -139,12 +139,13 @@ def super_admin_keyboard():
         keyboard=[
             [KeyboardButton(text="🗂 Arxiv boshqaruvi va Chala postlar"), KeyboardButton(text="📥 Bazadan Kino yuklash")],
             [KeyboardButton(text="📺 Bazadan Serial yuklash"), KeyboardButton(text="🗑 Faqat kinolar bazasini tozalash")],
-            [KeyboardButton(text="👁 Kinolarga Ko'rish qo'shish"), KeyboardButton(text="🧹 Kesh va __pycache__ tozalash")],
+            [KeyboardButton(text="🖥 Server Holati va CPU Analiz"), KeyboardButton(text="🧹 Kesh va __pycache__ tozalash")],
+            [KeyboardButton(text="👁 Kinolarga Ko'rish qo'shish"), KeyboardButton(text="📊 Kengaytirilgan Statistika")],
             [KeyboardButton(text="🌐 Mavzuli Guruh Boshqaruvi"), KeyboardButton(text="💎 VIP, Narxlar va Bonuslar")],
             [KeyboardButton(text="👮 Lavozim va Ruxsatlar"), KeyboardButton(text="🧠 Top-15 AI Tizimi")],
             [KeyboardButton(text="💾 Backup va Export/Import"), KeyboardButton(text="⚙️ Texnik Sozlamalar va Himoya")],
-            [KeyboardButton(text="🔐 Super-Parolni o'zgartirish"), KeyboardButton(text="📊 Kengaytirilgan Statistika")],
-            [KeyboardButton(text="👮 Admin Panel"), KeyboardButton(text="🏠 Foydalanuvchi menyusi")]
+            [KeyboardButton(text="🔐 Super-Parolni o'zgartirish"), KeyboardButton(text="🏠 Foydalanuvchi menyusi")],
+            [KeyboardButton(text="👮 Admin Panel")]
         ],
         resize_keyboard=True
     )

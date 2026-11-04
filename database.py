@@ -353,6 +353,13 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_user_time ON history(user_id, viewed_at DESC);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_favs_user_lookup ON favorites(user_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reactions_code ON reactions(movie_code);")
+
+        # Agar bazada mavjud bo'lmagan kino kodi archive_catalog da is_imported=1 bo'lib qolgan bo'lsa,
+        # uni avtomatik 0 qilamiz, shunda o'chirilgan kinolar/seriallar yana qayta yuklanishi mumkin bo'ladi!
+        await db.execute("""
+            UPDATE archive_catalog SET is_imported = 0, imported_code = ''
+            WHERE is_imported = 1 AND imported_code != '' AND imported_code NOT IN (SELECT code FROM movies);
+        """)
         await db.commit()
     finally:
         await db.close()
@@ -1190,6 +1197,7 @@ async def delete_movie(code: str) -> bool:
         await db.execute("DELETE FROM episodes WHERE movie_code = ?", (code,))
         await db.execute("DELETE FROM favorites WHERE movie_code = ?", (code,))
         await db.execute("DELETE FROM history WHERE movie_code = ?", (code,))
+        await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE imported_code = ?", (code,))
         await db.commit()
         return res.rowcount > 0
     finally:

@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 import gc
+import platform
+import psutil
 from datetime import datetime
 
 # Bytecode keshini (__pycache__) o'chirib qo'yish (Disk va RAM ni 100% tejash uchun)
@@ -260,7 +262,7 @@ async def get_bot_username() -> str:
     return BOT_USERNAME
 
 _SUB_OK_CACHE = {}
-_SUB_OK_TTL = 30  # soniya: tezkor va aniq obuna nazorati
+_SUB_OK_TTL = 90  # soniya: tezkor, xotirani tejovchi va qotmasdan ishlovchi kesh
 _ACTIVE_USER_VIDEO = {}  # (user_id, code) -> video_message_id
 _ACTIVE_POSTER_MSG = {}  # (user_id, code) -> poster_message_id
 _ACTIVE_EP_TRACKER = {}  # (user_id, code) -> current_episode_num
@@ -689,7 +691,7 @@ async def process_archive_item(
         "posted": posted
     }
 
-async def send_movie_card(target, user_id: int, code: str, ep_num: int = 1, ep_page: int = 1):
+async def send_movie_card(target, user_id: int, code: str, ep_num: int = None, ep_page: int = 1):
     """
     Kino yoki serial tanlanganida avval Poster Card (rasm + tavsif + inline menyu) chiqadi!
     Reski video berilmaydi — foydalanuvchi:
@@ -728,6 +730,7 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = 1, ep_p
             await db.update_movie_photo(movie["code"], poster_url)
             movie["photo_id"] = poster_url
 
+    active_ep = ep_num or _ACTIVE_EP_TRACKER.get((user_id, code))
     caption = format_movie_caption(movie, b_uname, current_ep=None, protect=protect, lang=lang)
     markup = kb.movie_poster_card_keyboard(
         movie=movie,
@@ -738,7 +741,7 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = 1, ep_p
         lang=lang,
         user_rating=user_rating,
         ep_page=ep_page,
-        current_ep=ep_num
+        current_ep=active_ep
     )
 
     sent_msg = None
@@ -768,6 +771,16 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = 1, ep_p
     if sent_msg:
         _ACTIVE_POSTER_MSG[(user_id, code)] = sent_msg.message_id
     return sent_msg
+
+
+async def safely_delete_active_user_video(user_id: int, code: str):
+    """Foydalanuvchining joriy serial/kino videosini chatdan kafolatli o'chiradi"""
+    msg_id = _ACTIVE_USER_VIDEO.pop((user_id, code), None)
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=msg_id)
+        except Exception:
+            pass
 
 
 async def send_movie_video(target, user_id: int, code: str, ep_num: int = 1):
@@ -813,13 +826,8 @@ async def send_movie_video(target, user_id: int, code: str, ep_num: int = 1):
         user_rating=user_rating
     )
 
-    # Agar oldingi video xabari mavjud bo'lsa, uni tozalaymiz (ortiqcha dublikat va spam bo'lmaydi!)
-    prev_vid = _ACTIVE_USER_VIDEO.get((user_id, code))
-    if prev_vid:
-        try:
-            await bot.delete_message(chat_id=user_id, message_id=prev_vid)
-        except Exception:
-            pass
+    # Agar oldingi video xabari mavjud bo'lsa, uni to'liq tozalaymiz (hech qachon 2 ta video chatda qolib ketmaydi!)
+    await safely_delete_active_user_video(user_id, code)
 
     sent = None
     try:
@@ -1276,6 +1284,23 @@ async def execute_archive_grouped_serials_load(message: Message, target_count: i
 
         if not resolved_eps:
             continue
+
+        # Serial qismlarini tartiblaymiz
+        resolved_eps.sort(key=lambda x: (x["ep_num"], x["msg_id"]))
+
+        # Agar barcha qismlar bir xil qism raqami (masalan 1) bo'lib qolgan bo'lsa yoki dublikatlar bo'lsa ->
+        # ularni ketma-ket 1, 2, 3... qilib qat'iy qayta raqamlaymiz!
+        seen_nums = set()
+        need_reindex = False
+        for ep in resolved_eps:
+            if ep["ep_num"] in seen_nums:
+                need_reindex = True
+                break
+            seen_nums.add(ep["ep_num"])
+
+        if need_reindex:
+            for seq_idx, ep in enumerate(resolved_eps, 1):
+                ep["ep_num"] = seq_idx
 
         code = await db.get_next_auto_code()
         meta = await _archive_clean_meta(first_it, serial_title, is_serial=True)
@@ -1760,6 +1785,125 @@ async def cmd_clear_pycache_and_memory(message: Message):
         f"✨ Server xotirasi va diski 100% optimal holatga keltirildi!",
         parse_mode="HTML"
     )
+
+_BOT_START_TIME = datetime.now()
+
+
+def get_server_diagnostics_report() -> tuple[str, InlineKeyboardMarkup]:
+    """
+    Super Administrator uchun server holati (CPU, RAM, Disk, Uptime, Process) haqida
+    batafsil va professional vizual hisobot tayyorlaydi.
+    """
+    def make_bar(percent, length=10):
+        filled = int(round(length * min(100, max(0, percent)) / 100))
+        return "█" * filled + "░" * (length - filled)
+
+    cpu_pct = psutil.cpu_percent(interval=None)
+    cpu_cores = psutil.cpu_count(logical=True) or 1
+    cpu_bar = make_bar(cpu_pct)
+
+    vm = psutil.virtual_memory()
+    ram_total_mb = vm.total / (1024 * 1024)
+    ram_used_mb = vm.used / (1024 * 1024)
+    ram_free_mb = vm.available / (1024 * 1024)
+    ram_pct = vm.percent
+    ram_bar = make_bar(ram_pct)
+
+    disk = psutil.disk_usage(BASE_DIR)
+    disk_total_mb = disk.total / (1024 * 1024)
+    disk_used_mb = disk.used / (1024 * 1024)
+    disk_free_mb = disk.free / (1024 * 1024)
+    disk_pct = disk.percent
+    disk_bar = make_bar(disk_pct)
+
+    try:
+        proc = psutil.Process()
+        proc_rss_mb = proc.memory_info().rss / (1024 * 1024)
+        proc_threads = proc.num_threads()
+    except Exception:
+        proc_rss_mb = 0.0
+        proc_threads = 1
+
+    uptime_delta = datetime.now() - _BOT_START_TIME
+    days = uptime_delta.days
+    hours, remainder = divmod(uptime_delta.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{days}k {hours}s {minutes}m {seconds}soniya" if days > 0 else f"{hours} soat {minutes} daqiqa {seconds} soniya"
+
+    os_info = f"{platform.system()} {platform.release()}"
+    py_ver = f"{platform.python_implementation()} {platform.python_version()}"
+
+    text = (
+        f"🖥 <b>SERVER HOLATI VA TIZIM ANALIZI</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ <b>CPU yuklanishi:</b> <code>{cpu_pct:.1f}%</code> [{cpu_bar}] ({cpu_cores} vCPU)\n\n"
+        f"🧠 <b>RAM (Operativ xotira):</b>\n"
+        f"   • Jami: <code>{ram_total_mb:.1f} MB</code>\n"
+        f"   • Ishlatilmoqda: <code>{ram_used_mb:.1f} MB</code> ({ram_pct:.1f}%) [{ram_bar}]\n"
+        f"   • Bo'sh xotira: <code>{ram_free_mb:.1f} MB</code>\n"
+        f"   • Bot jarayoni (RSS): <code>{proc_rss_mb:.1f} MB</code>\n\n"
+        f"💾 <b>Disk xotirasi (Storage):</b>\n"
+        f"   • Jami: <code>{disk_total_mb:.1f} MB</code>\n"
+        f"   • Ishlatilmoqda: <code>{disk_used_mb:.1f} MB</code> ({disk_pct:.1f}%) [{disk_bar}]\n"
+        f"   • Bo'sh disk: <code>{disk_free_mb:.1f} MB</code>\n\n"
+        f"⏱ <b>Tizim & Jarayon:</b>\n"
+        f"   • Bot Uptime: <b>{uptime_str}</b>\n"
+        f"   • Jarayon PID: <code>{os.getpid()}</code> (Threadlar: {proc_threads})\n"
+        f"   • Python: <code>{py_ver}</code>\n"
+        f"   • OS: <code>{os_info}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🕒 <i>Jonli vaqt: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>"
+    )
+
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Jonli Yangilash", callback_data="sadm_server_refresh"),
+            InlineKeyboardButton(text="🧹 Kesh va RAM tozalash", callback_data="sadm_server_clear_cache")
+        ]
+    ])
+    return text, markup
+
+
+@dp.message(F.text.in_({"🖥 Server Holati va CPU Analiz", "Server holati", "/server"}))
+async def cmd_server_diagnostics(message: Message):
+    role = await db.get_user_role(message.from_user.id)
+    if role != "superadmin" and not await db.has_permission(message.from_user.id, "settings"):
+        await message.answer("⛔ Bu bo'lim faqat Super Administratorga tegishli!")
+        return
+    text, markup = get_server_diagnostics_report()
+    await message.answer(text, reply_markup=markup, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "sadm_server_refresh")
+async def cb_server_diagnostics_refresh(call: CallbackQuery):
+    role = await db.get_user_role(call.from_user.id)
+    if role != "superadmin" and not await db.has_permission(call.from_user.id, "settings"):
+        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
+        return
+    text, markup = get_server_diagnostics_report()
+    try:
+        await call.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        pass
+    await call.answer("🔄 Server holati yangilandi!")
+
+
+@dp.callback_query(F.data == "sadm_server_clear_cache")
+async def cb_server_diagnostics_clear_cache(call: CallbackQuery):
+    role = await db.get_user_role(call.from_user.id)
+    if role != "superadmin" and not await db.has_permission(call.from_user.id, "settings"):
+        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
+        return
+    purged_dirs, purged_files, freed_bytes = purge_bytecode_and_cache()
+    gc.collect()
+    freed_kb = freed_bytes / 1024
+    freed_txt = f"{freed_kb:.1f} KB" if freed_kb < 1024 else f"{freed_kb/1024:.2f} MB"
+    await call.answer(f"🧹 Kesh tozalandi: {freed_txt} bo'shatildi!", show_alert=True)
+    text, markup = get_server_diagnostics_report()
+    try:
+        await call.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        pass
 
 @dp.callback_query(F.data == "arch_toggle_grab")
 async def cb_arch_toggle_grab(call: CallbackQuery):
@@ -3926,11 +4070,13 @@ async def cb_switch_episode(call: CallbackQuery):
     _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
     await call.answer(f"▶️ {ep_num}-серия..." if lang == "ru" else f"▶️ {ep_num}-qism yuklanmoqda...")
 
-    # 1. Joriy video xabarini o'chirish (toza o'tish uchun, ortiqcha dublikat va spam bo'lmaydi)
-    try:
-        await call.message.delete()
-    except Exception:
-        pass
+    # 1. Joriy video xabarini va saqlangan faol videoni kafolatli o'chirish (toza almashish uchun)
+    await safely_delete_active_user_video(user_id, code)
+    if call.message:
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
 
     # 2. Tepadagi Poster Card klaviaturasini ham yangilash (u yerda ham ▶️ {ep_num} bo'lib turadi!)
     poster_msg_id = _ACTIVE_POSTER_MSG.get((user_id, code))
