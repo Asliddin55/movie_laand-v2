@@ -442,6 +442,7 @@ def archive_center_inline(auto_grab: str, auto_post: str, archive_ch: str, post_
     post_txt = "🟢 Yoqilgan" if auto_post == "1" else "🔴 O'chirilgan"
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="📡 Arxiv kanalni to'liq skanerlash", callback_data="arch_scan_channel")],
             [InlineKeyboardButton(text="✨ Chala postlarni to'ldirish va tartiblash", callback_data="arch_ai_fix_posts")],
             [
                 InlineKeyboardButton(text="📥 10 ta kino yuklash", callback_data="arch_load_10"),

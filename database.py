@@ -1706,6 +1706,24 @@ async def upsert_archive_catalog_item(
     finally:
         await db.close()
 
+async def get_max_archive_catalog_msg_id() -> int:
+    db = await get_db_conn()
+    try:
+        async with db.execute("SELECT MAX(msg_id) FROM archive_catalog") as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if (row and row[0]) else 0
+    finally:
+        await db.close()
+
+async def get_all_catalog_msg_ids() -> set:
+    db = await get_db_conn()
+    try:
+        async with db.execute("SELECT msg_id FROM archive_catalog") as cur:
+            rows = await cur.fetchall()
+            return {r[0] for r in rows}
+    finally:
+        await db.close()
+
 async def update_archive_catalog_file_id(msg_id: int, file_id: str):
     db = await get_db_conn()
     try:

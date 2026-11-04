@@ -1445,6 +1445,273 @@ async def archive_center_menu(message: Message):
         parse_mode="HTML"
     )
 
+async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg: Message = None, full_rescan: bool = False) -> dict:
+    """
+    Movie Land Rasmiy Arxiv kanalidagi (-1003124847141) barcha yangi kino va seriallarni
+    to'liq skanerlab, tahlil qilib, archive_catalog jadvaliga kiritadi.
+    Seriallarni qismlari bo'yicha guruhlaydi, yangi kinolarni to'liq indekslaydi.
+    """
+    arch_ch_str = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
+    arch_ch = int(arch_ch_str)
+    target_probe = probe_chat_id if probe_chat_id else arch_ch
+
+    # 1. Kanaldagi eng oxirgi message_id ni aniqlash
+    try:
+        probe = await bot.send_message(chat_id=arch_ch, text="🔍 Skaner tekshiruvi...", disable_notification=True)
+        max_msg_id = probe.message_id - 1
+        await bot.delete_message(chat_id=arch_ch, message_id=probe.message_id)
+    except Exception as e:
+        logging.warning(f"Arxiv kanal probe xatosi: {e}")
+        return {"ok": False, "error": str(e), "new_added": 0}
+
+    last_db_id = await db.get_max_archive_catalog_msg_id()
+    if full_rescan or last_db_id == 0:
+        existing_mids = await db.get_all_catalog_msg_ids()
+        missing_mids = [m for m in range(50, max_msg_id + 1) if m not in existing_mids]
+    else:
+        missing_mids = list(range(last_db_id + 1, max_msg_id + 1))
+
+    if not missing_mids:
+        return {
+            "ok": True,
+            "checked": 0,
+            "new_added": 0,
+            "new_movies": 0,
+            "new_serials": 0,
+            "max_id": max_msg_id
+        }
+
+    total_to_check = len(missing_mids)
+    checked = 0
+    new_movies = 0
+    new_serials = 0
+    new_added = 0
+    batch_size = 10
+    last_update_time = time.monotonic()
+
+    async def _probe_single(mid):
+        try:
+            fwd = await bot.forward_message(
+                chat_id=target_probe,
+                from_chat_id=arch_ch,
+                message_id=mid,
+                disable_notification=True
+            )
+            v_obj = fwd.video or fwd.document
+            raw_cap = fwd.caption or ""
+            fn = getattr(v_obj, "file_name", "") or ""
+            vh = getattr(v_obj, "height", 0) or 0
+            fid = v_obj.file_id if v_obj else ""
+            try:
+                await bot.delete_message(chat_id=target_probe, message_id=fwd.message_id)
+            except Exception:
+                pass
+            if fid:
+                return (mid, fid, fn, vh, raw_cap)
+        except Exception:
+            pass
+        return None
+
+    for i in range(0, total_to_check, batch_size):
+        chunk = missing_mids[i : i + batch_size]
+        tasks = [_probe_single(m) for m in chunk]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        checked += len(chunk)
+
+        for res in results:
+            if not res or isinstance(res, Exception):
+                continue
+            mid, file_id, file_name, v_height, raw_caption = res
+
+            if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz")):
+                continue
+
+            parsed = ai_service.parse_archive_caption(
+                raw_text=raw_caption,
+                file_name=file_name,
+                video_height=v_height,
+                msg_id=mid
+            )
+            m_name = parsed["name"]
+            is_ser = parsed["is_serial"]
+            ep_n = parsed["episode_num"]
+            ext = ai_service.extract_base_title_and_part(m_name, raw_caption=raw_caption, file_name=file_name)
+            base_t = ext.get("base_title") or m_name
+            final_part = ep_n if ep_n > 1 else ext.get("part_num", 1)
+            final_is_serial = 1 if (is_ser or ext.get("is_serial") or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
+
+            await db.upsert_archive_catalog_item(
+                msg_id=mid,
+                file_id=file_id,
+                file_name=file_name,
+                video_height=v_height,
+                raw_caption=raw_caption,
+                parsed_name=m_name,
+                base_title=base_t,
+                year=parsed.get("year", "2024"),
+                country=parsed.get("country", "AQSH"),
+                genre=parsed.get("genre", "🔥 Jangari"),
+                quality=parsed.get("quality", "1080p Full HD"),
+                is_serial=final_is_serial,
+                part_num=final_part,
+                is_imported=0,
+                imported_code=""
+            )
+            new_added += 1
+            if final_is_serial:
+                new_serials += 1
+            else:
+                new_movies += 1
+
+        if status_msg and (time.monotonic() - last_update_time > 2.5 or checked >= total_to_check):
+            last_update_time = time.monotonic()
+            try:
+                pct = int(checked * 100 / total_to_check)
+                await status_msg.edit_text(
+                    f"📡 <b>Arxiv kanal jonli skanerlanmoqda...</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"⏳ <b>Jarayon:</b> {checked}/{total_to_check} ta post ({pct}%)\n"
+                    f"🎬 <b>Yangi topilgan kinolar:</b> {new_movies} ta\n"
+                    f"📺 <b>Yangi serial qismlari:</b> {new_serials} ta\n"
+                    f"🔢 <b>Jami yangi:</b> {new_added} ta\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"⚡ Bot arxivni to'liq saralab katalogga kiritmoqda...",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.08)
+
+    return {
+        "ok": True,
+        "checked": checked,
+        "new_added": new_added,
+        "new_movies": new_movies,
+        "new_serials": new_serials,
+        "max_id": max_msg_id
+    }
+
+
+async def archive_auto_scanner_worker():
+    """
+    Har 20 daqiqada Arxiv kanalni (-1003124847141) orqa fonda avtomatik tekshiradi.
+    Yangi kino yoki serial tashlangan bo'lsa, ularni avtomatik skanerlab katalogga kiritadi!
+    """
+    while True:
+        try:
+            await asyncio.sleep(1200)  # 20 daqiqa
+            auto_grab = await db.get_setting("auto_grab_archive", "1")
+            if auto_grab == "1":
+                arch_ch_str = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
+                arch_ch = int(arch_ch_str)
+                # Max message ID tekshiruvi
+                try:
+                    probe = await bot.send_message(chat_id=arch_ch, text="🔍", disable_notification=True)
+                    max_id = probe.message_id - 1
+                    await bot.delete_message(chat_id=arch_ch, message_id=probe.message_id)
+                except Exception:
+                    max_id = 0
+
+                last_db_id = await db.get_max_archive_catalog_msg_id()
+                if max_id > last_db_id:
+                    res = await scan_archive_channel_to_catalog()
+                    if res.get("new_added", 0) > 0:
+                        logging.info(
+                            f"📡 archive_auto_scanner: {res['new_added']} ta yangi post katalogga qo'shildi "
+                            f"(Kinolar: {res['new_movies']}, Seriallar: {res['new_serials']})"
+                        )
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logging.warning(f"archive_auto_scanner_worker xatosi: {e}")
+
+
+@dp.callback_query(F.data == "arch_scan_channel")
+async def cb_arch_scan_channel(call: CallbackQuery):
+    if not await _can_load_archive(call.from_user.id):
+        await call.answer("⛔ Sizda bu funksiya uchun ruxsat yo'q!", show_alert=True)
+        return
+
+    await call.answer("📡 Arxiv kanalni skanerlash boshlandi...")
+    status_msg = await call.message.answer(
+        "⏳ <b>Arxiv kanal (-1003124847141) skanerlashga tayyorlanmoqda...</b>\n"
+        "Barcha yangi kinolar va seriallar tahlil qilinadi.",
+        parse_mode="HTML"
+    )
+
+    res = await scan_archive_channel_to_catalog(probe_chat_id=call.from_user.id, status_msg=status_msg)
+    st = await db.get_archive_catalog_stats()
+
+    if not res.get("ok"):
+        await status_msg.edit_text(f"❌ Skanerlashda xatolik: {res.get('error')}")
+        return
+
+    auto_grab = await db.get_setting("auto_grab_archive", "1")
+    auto_post = await db.get_setting("archive_auto_post", "1")
+    arch_ch = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
+    post_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
+
+    report = (
+        f"✅ <b>ARXIV KANAL SKANERLASH YAKUNLANDI!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Tekshirilgan postlar:</b> {res['checked']} ta\n"
+        f"🆕 <b>Yangi katalogga kiritildi:</b> <b>{res['new_added']} ta</b>\n"
+        f"🎬 <b>Yangi kinolar:</b> {res['new_movies']} ta\n"
+        f"📺 <b>Yangi serial qismlari:</b> {res['new_serials']} ta\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🗄 <b>Katalogdagi jami kinolar:</b> {st['total_movie_groups']} ta ({st['total_movie_files']} qism)\n"
+        f"📺 <b>Katalogdagi jami seriallar:</b> {st['total_serial_groups']} ta ({st['total_serial_eps']} qism)\n"
+        f"⏳ <b>Yuklanmagan kinolar:</b> <b>{st['rem_movie_groups']} ta</b>\n"
+        f"⏳ <b>Yuklanmagan seriallar:</b> <b>{st['rem_serial_groups']} ta</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💡 Endi ularni paneldagi <b>«📥 10 ta kino yuklash»</b> yoki <b>«📺 1 ta serial yuklash»</b> orqali bir zumda bazaga yuklashingiz mumkin!"
+    )
+    await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.archive_center_inline(auto_grab, auto_post, arch_ch, post_ch))
+
+
+@dp.message(F.text.in_({"📡 Arxivni to'liq skanerlash", "Arxivni skanerlash"}))
+async def cmd_scan_archive_channel(message: Message):
+    if not await _can_load_archive(message.from_user.id):
+        await message.answer("⛔ Sizda bu bo'limga ruxsat yo'q!")
+        return
+
+    status_msg = await message.answer(
+        "⏳ <b>Arxiv kanal (-1003124847141) skanerlashga tayyorlanmoqda...</b>\n"
+        "Barcha yangi kinolar va seriallar tahlil qilinadi.",
+        parse_mode="HTML"
+    )
+
+    res = await scan_archive_channel_to_catalog(probe_chat_id=message.from_user.id, status_msg=status_msg)
+    st = await db.get_archive_catalog_stats()
+
+    if not res.get("ok"):
+        await status_msg.edit_text(f"❌ Skanerlashda xatolik: {res.get('error')}")
+        return
+
+    auto_grab = await db.get_setting("auto_grab_archive", "1")
+    auto_post = await db.get_setting("archive_auto_post", "1")
+    arch_ch = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
+    post_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
+
+    report = (
+        f"✅ <b>ARXIV KANAL SKANERLASH YAKUNLANDI!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Tekshirilgan postlar:</b> {res['checked']} ta\n"
+        f"🆕 <b>Yangi katalogga kiritildi:</b> <b>{res['new_added']} ta</b>\n"
+        f"🎬 <b>Yangi kinolar:</b> {res['new_movies']} ta\n"
+        f"📺 <b>Yangi serial qismlari:</b> {res['new_serials']} ta\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🗄 <b>Katalogdagi jami kinolar:</b> {st['total_movie_groups']} ta ({st['total_movie_files']} qism)\n"
+        f"📺 <b>Katalogdagi jami seriallar:</b> {st['total_serial_groups']} ta ({st['total_serial_eps']} qism)\n"
+        f"⏳ <b>Yuklanmagan kinolar:</b> <b>{st['rem_movie_groups']} ta</b>\n"
+        f"⏳ <b>Yuklanmagan seriallar:</b> <b>{st['rem_serial_groups']} ta</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💡 Endi ularni paneldagi <b>«📥 10 ta kino yuklash»</b> yoki <b>«📺 1 ta serial yuklash»</b> orqali bir zumda bazaga yuklashingiz mumkin!"
+    )
+    await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.archive_center_inline(auto_grab, auto_post, arch_ch, post_ch))
+
+
 @dp.callback_query(F.data == "arch_load_10")
 async def cb_arch_load_10(call: CallbackQuery):
     if not await _can_load_archive(call.from_user.id):
@@ -4974,6 +5241,7 @@ async def main():
         asyncio.create_task(auto_backup_worker())
         asyncio.create_task(premium_expiry_worker())
         asyncio.create_task(pycache_cleanup_worker())
+        asyncio.create_task(archive_auto_scanner_worker())
         logging.info(f"Movie Land Ultra Bot (@{BOT_USERNAME}) [PID: {os.getpid()}] 2-Tilli (UZ/RU), TMDB Poster va Mavzuli Guruh (-1002748514315) Ekotizimi bilan ishga tushdi!")
         allowed = list(set(dp.resolve_used_update_types() + ["chat_member", "my_chat_member", "chat_join_request", "inline_query", "chosen_inline_result"]))
         await dp.start_polling(bot, handle_as_tasks=True, allowed_updates=allowed)
