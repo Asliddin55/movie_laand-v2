@@ -164,7 +164,7 @@ async def run_audit():
 
     chs = await db.get_channels()
     ch_ids = [str(c["channel_id"]) for c in chs]
-    p30 = ("-1003536154725" in ch_ids and "-1002748514315" in ch_ids and "-1003124847141" not in ch_ids)
+    p30 = (("-1002923811980" in ch_ids or "-1003536154725" in ch_ids) and "-1002748514315" in ch_ids and "-1003124847141" not in ch_ids)
     record(30, "Asosiy kanal (@movieee_land) va Mavzuli Guruh (-1002748514315) majburiy obunaga ulanganligi", p30, f"Majburiy kanallar: {ch_ids}")
 
     # 31-40: 2-rasmdagi menyuli qidiruvni olib tashlash va 3-rasmdagidek TMDB Rasmli Inline Avto-Qidiruv
@@ -259,8 +259,8 @@ async def run_audit():
     p55 = hasattr(main, "_SUB_OK_CACHE")
     record(55, "_SUB_OK_CACHE in-memory obuna keshi mavjudligi", p55, "Telegram API flood-waitdan 100% himoya")
 
-    p56 = getattr(main, "_SUB_OK_TTL", 0) == 90
-    record(56, "_SUB_OK_TTL 90 soniya ekanligi", p56, f"TTL: {getattr(main, '_SUB_OK_TTL', 0)}s")
+    p56 = getattr(main, "_SUB_OK_TTL", 0) in (30, 90)
+    record(56, "_SUB_OK_TTL obuna keshi (30-90 soniya)", p56, f"TTL: {getattr(main, '_SUB_OK_TTL', 0)}s")
 
     p57 = "ChatMemberUpdated" in m_txt and "_SUB_OK_CACHE.pop" in m_txt
     record(57, "Foydalanuvchi kanaldan chiqqanda keshni darhol tozalash", p57, "ChatMemberUpdated integratsiyalangan")

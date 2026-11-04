@@ -312,9 +312,10 @@ async def init_db():
         ))
 
         # Arxivdan tashqari 2 ta asosiy kanal/guruhni majburiy obunaga avto-ulash:
-        # 1) Post yuboradigan asosiy kanal (@movieee_land / -1003536154725)
+        # 1) Post yuboradigan asosiy kanal (@movieee_land / -1002923811980)
         # 2) Mavzuli Guruh (-1002748514315)
         # Arxiv kanali (-1003124847141) majburiy obunada bo'lmasligi shart!
+        await db.execute("UPDATE channels SET channel_id = ? WHERE channel_id = '-1003536154725'", (config.DEFAULT_POST_CHANNEL_CHAT_ID,))
         await db.execute("DELETE FROM channels WHERE channel_id = ?", (config.DEFAULT_ARCHIVE_CHANNEL_ID,))
         await db.execute("""
             INSERT OR IGNORE INTO channels (channel_id, title, invite_link, ch_type)

@@ -16,7 +16,7 @@ DEFAULT_SUPER_ADMIN_PASSWORD = os.getenv("ADMIN_SECRET_CODE", "asliddin29092006"
 # Rasmiy Arxiv Kanal va Asosiy Post Kanali
 DEFAULT_ARCHIVE_CHANNEL_ID = "-1003124847141"
 DEFAULT_POST_CHANNEL_ID = "@movieee_land"
-DEFAULT_POST_CHANNEL_CHAT_ID = "-1003536154725"
+DEFAULT_POST_CHANNEL_CHAT_ID = "-1002923811980"
 DEFAULT_POST_CHANNEL_LINK = "https://t.me/movieee_land"
 
 # Yagona Rasmiy Mavzuli Guruh (Forum) va uning Topic (Bo'lim) ID raqamlari

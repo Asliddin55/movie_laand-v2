@@ -85,7 +85,11 @@ def staff_panel_keyboard(perms: list, is_super: bool = False):
     kb = []
 
     if is_super or "archive_load" in perms or "add_movie" in perms:
-        kb.append([KeyboardButton(text="📥 Bazadan Kino yuklash"), KeyboardButton(text="📺 Bazadan Serial yuklash")])
+        kb.append([
+            KeyboardButton(text="🗂 Arxiv boshqaruvi va Chala postlar"),
+            KeyboardButton(text="📥 Bazadan Kino yuklash")
+        ])
+        kb.append([KeyboardButton(text="📺 Bazadan Serial yuklash")])
 
     if is_super or "add_movie" in perms:
         kb.append([KeyboardButton(text="➕ Kino qo'shish (Pro)"), KeyboardButton(text="⚡ Tezkor kino qo'shish")])
@@ -133,8 +137,9 @@ def staff_panel_keyboard(perms: list, is_super: bool = False):
 def super_admin_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📥 Bazadan Kino yuklash"), KeyboardButton(text="📺 Bazadan Serial yuklash")],
-            [KeyboardButton(text="👁 Kinolarga Ko'rish qo'shish"), KeyboardButton(text="🗑 Faqat kinolar bazasini tozalash")],
+            [KeyboardButton(text="🗂 Arxiv boshqaruvi va Chala postlar"), KeyboardButton(text="📥 Bazadan Kino yuklash")],
+            [KeyboardButton(text="📺 Bazadan Serial yuklash"), KeyboardButton(text="🗑 Faqat kinolar bazasini tozalash")],
+            [KeyboardButton(text="👁 Kinolarga Ko'rish qo'shish"), KeyboardButton(text="🧹 Kesh va __pycache__ tozalash")],
             [KeyboardButton(text="🌐 Mavzuli Guruh Boshqaruvi"), KeyboardButton(text="💎 VIP, Narxlar va Bonuslar")],
             [KeyboardButton(text="👮 Lavozim va Ruxsatlar"), KeyboardButton(text="🧠 Top-15 AI Tizimi")],
             [KeyboardButton(text="💾 Backup va Export/Import"), KeyboardButton(text="⚙️ Texnik Sozlamalar va Himoya")],
@@ -437,7 +442,12 @@ def archive_center_inline(auto_grab: str, auto_post: str, archive_ch: str, post_
     post_txt = "🟢 Yoqilgan" if auto_post == "1" else "🔴 O'chirilgan"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✨ Chala postlarni to'ldirish", callback_data="arch_ai_fix_posts")],
+            [InlineKeyboardButton(text="✨ Chala postlarni to'ldirish va tartiblash", callback_data="arch_ai_fix_posts")],
+            [
+                InlineKeyboardButton(text="📥 10 ta kino yuklash", callback_data="arch_load_10"),
+                InlineKeyboardButton(text="📺 1 ta serial yuklash", callback_data="arch_load_1_serial")
+            ],
+            [InlineKeyboardButton(text="🗑 Faqat kinolar bazasini tozalash", callback_data="clear_movies_confirm")],
             [InlineKeyboardButton(text=f"🤖 Yangi kinolarni avto-olish: {grab_txt}", callback_data="arch_toggle_grab")],
             [InlineKeyboardButton(text=f"📢 Kanalga avto-post: {post_txt}", callback_data="arch_toggle_post")]
         ]
@@ -606,7 +616,8 @@ def movie_poster_card_keyboard(
     user_perms: list = None,
     lang: str = "uz",
     user_rating: int = 0,
-    ep_page: int = 1
+    ep_page: int = 1,
+    current_ep: int = None
 ):
     """
     Kino yoki serial tanlanganida avval Poster Card chiqadi (reski video berilmaydi!):
@@ -630,9 +641,10 @@ def movie_poster_card_keyboard(
         watch_prefix = "▶️ Смотреть" if lang == "ru" else "▶️ Kino ko'rish"
         for ep in episodes:
             ep_num = ep["episode_num"]
+            play_icon = "▶️ " if (current_ep and ep_num == current_ep) else ""
             buttons.append([
                 InlineKeyboardButton(
-                    text=f"{watch_prefix} ({ep_num}-{ep_word})",
+                    text=f"{play_icon}{watch_prefix} ({ep_num}-{ep_word})",
                     callback_data=f"watch:{code}:{ep_num}"
                 )
             ])
@@ -640,14 +652,19 @@ def movie_poster_card_keyboard(
         # 3 tadan ko'p qism yoki serial: 1 2 3 4 5 ... ko'rinishida
         per_page = 30
         total_pages = max(1, (total_eps + per_page - 1) // per_page)
-        ep_page = max(1, min(ep_page, total_pages))
+        if current_ep:
+            ep_page = max(1, min((current_ep - 1) // per_page + 1, total_pages))
+        else:
+            ep_page = max(1, min(ep_page, total_pages))
+
         start_idx = (ep_page - 1) * per_page
         page_eps = episodes[start_idx : start_idx + per_page]
 
         row = []
         for ep in page_eps:
             ep_num = ep["episode_num"]
-            row.append(InlineKeyboardButton(text=f"{ep_num}", callback_data=f"watch:{code}:{ep_num}"))
+            btn_txt = f"▶️ {ep_num}" if (current_ep and ep_num == current_ep) else f"{ep_num}"
+            row.append(InlineKeyboardButton(text=btn_txt, callback_data=f"watch:{code}:{ep_num}"))
             if len(row) == 5:
                 buttons.append(row)
                 row = []
@@ -733,14 +750,14 @@ def movie_action_keyboard(
                 ep_row.append(InlineKeyboardButton(text=label, callback_data=f"ep:{code}:{ep_num}"))
             buttons.append(ep_row)
         else:
-            # Agar qismlar > 3 bo'lsa, joriy qism atrofidagi 15 ta qismni 1 2 3 4 5 qilib chiqaramiz
+            # Agar qismlar > 3 bo'lsa, joriy qism turgan 15 talik blokni 1 2 3 4 5 qilib chiqaramiz
             idx = 0
             for i, ep in enumerate(episodes):
                 if ep["episode_num"] == current_ep:
                     idx = i
                     break
-            start_i = max(0, min(idx - 7, total_eps - 15))
-            window_eps = episodes[start_i : start_i + 15]
+            block_start = (idx // 15) * 15
+            window_eps = episodes[block_start : block_start + 15]
             ep_row = []
             for ep in window_eps:
                 ep_num = ep["episode_num"]
@@ -751,6 +768,19 @@ def movie_action_keyboard(
                     ep_row = []
             if ep_row:
                 buttons.append(ep_row)
+
+            if total_eps > 15:
+                nav = []
+                cur_block = idx // 15
+                max_blocks = (total_eps - 1) // 15
+                if cur_block > 0:
+                    prev_ep = max(1, cur_block * 15)
+                    nav.append(InlineKeyboardButton(text="⬅️ Oldingi 15", callback_data=f"ep:{code}:{prev_ep}"))
+                nav.append(InlineKeyboardButton(text=f"🎞 {current_ep}/{total_eps}", callback_data="noop"))
+                if cur_block < max_blocks:
+                    next_ep = min(total_eps, (cur_block + 1) * 15 + 1)
+                    nav.append(InlineKeyboardButton(text="Keyingi 15 ➡️", callback_data=f"ep:{code}:{next_ep}"))
+                buttons.append(nav)
 
     # 5 talik yulduzcha baholash qatori (👍/👎 o'rniga)
     star_row = []
