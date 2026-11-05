@@ -784,6 +784,17 @@ def movie_action_keyboard(
                     nav.append(InlineKeyboardButton(text="Keyingi 15 ➡️", callback_data=f"ep:{code}:{next_ep}"))
                 buttons.append(nav)
 
+        if total_eps > 1:
+            step_row = []
+            prev_lbl = "◀️ Предыдущая" if lang == "ru" else "◀️ Oldingi qism"
+            next_lbl = "Следующая ⏩" if lang == "ru" else "Keyingi qism ⏩"
+            if current_ep > 1:
+                step_row.append(InlineKeyboardButton(text=prev_lbl, callback_data=f"ep:{code}:{current_ep - 1}"))
+            if current_ep < total_eps:
+                step_row.append(InlineKeyboardButton(text=next_lbl, callback_data=f"ep:{code}:{current_ep + 1}"))
+            if step_row:
+                buttons.append(step_row)
+
     # 5 talik yulduzcha baholash qatori (👍/👎 o'rniga)
     star_row = []
     for s in range(1, 6):

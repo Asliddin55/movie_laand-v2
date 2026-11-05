@@ -30,9 +30,9 @@ async def get_db_conn():
     await db.execute("PRAGMA journal_mode=WAL;")
     await db.execute("PRAGMA synchronous=NORMAL;")
     await db.execute("PRAGMA busy_timeout=30000;")
-    await db.execute("PRAGMA cache_size=-64000;")
+    await db.execute("PRAGMA cache_size=-8000;")
     await db.execute("PRAGMA temp_store=MEMORY;")
-    await db.execute("PRAGMA mmap_size=268435456;")
+    await db.execute("PRAGMA mmap_size=33554432;")
     return db
 
 
@@ -250,6 +250,18 @@ async def init_db():
                 part_num INTEGER DEFAULT 1,
                 is_imported INTEGER DEFAULT 0,
                 imported_code TEXT DEFAULT ''
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS active_sessions (
+                user_id INTEGER,
+                movie_code TEXT,
+                poster_msg_id INTEGER DEFAULT NULL,
+                video_msg_id INTEGER DEFAULT NULL,
+                current_ep INTEGER DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, movie_code)
             )
         """)
 
@@ -2029,3 +2041,48 @@ async def export_movies_csv(filepath: str = "movies_export.csv") -> str:
                 m.get("caption", "")
             ])
     return filepath
+
+
+# ===================== FOYDALANUVCHILARNING FAOL SEANSLARI (RESTARTGA CHIDAMLI) =====================
+async def save_active_session(user_id: int, movie_code: str, poster_msg_id: int = None, video_msg_id: int = None, current_ep: int = None):
+    """Foydalanuvchining ko'rayotgan kino/serial seansini saqlaydi (bot o'chib yonsa ham eslab qoladi)."""
+    db = await get_db_conn()
+    try:
+        async with db.execute("SELECT poster_msg_id, video_msg_id, current_ep FROM active_sessions WHERE user_id = ? AND movie_code = ?", (user_id, str(movie_code))) as cur:
+            row = await cur.fetchone()
+        cur_p = poster_msg_id if poster_msg_id is not None else (row[0] if row else None)
+        cur_v = video_msg_id if video_msg_id is not None else (row[1] if row else None)
+        cur_e = current_ep if current_ep is not None else (row[2] if row else 1)
+        await db.execute("""
+            INSERT INTO active_sessions (user_id, movie_code, poster_msg_id, video_msg_id, current_ep, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, movie_code) DO UPDATE SET
+                poster_msg_id = excluded.poster_msg_id,
+                video_msg_id = excluded.video_msg_id,
+                current_ep = excluded.current_ep,
+                updated_at = CURRENT_TIMESTAMP
+        """, (user_id, str(movie_code), cur_p, cur_v, cur_e))
+        await db.commit()
+    finally:
+        await db.close()
+
+async def get_active_session(user_id: int, movie_code: str) -> dict:
+    """Foydalanuvchining aktiv seansini (poster va video xabar ID) qaytaradi."""
+    db = await get_db_conn()
+    try:
+        async with db.execute("SELECT poster_msg_id, video_msg_id, current_ep FROM active_sessions WHERE user_id = ? AND movie_code = ?", (user_id, str(movie_code))) as cur:
+            row = await cur.fetchone()
+            if row:
+                return {"poster_msg_id": row[0], "video_msg_id": row[1], "current_ep": row[2]}
+            return {}
+    finally:
+        await db.close()
+
+async def clear_active_video_session(user_id: int, movie_code: str):
+    """Foydalanuvchining chatidan video o'chirilganda bazada video_msg_id ni tozalaydi."""
+    db = await get_db_conn()
+    try:
+        await db.execute("UPDATE active_sessions SET video_msg_id = NULL WHERE user_id = ? AND movie_code = ?", (user_id, str(movie_code)))
+        await db.commit()
+    finally:
+        await db.close()

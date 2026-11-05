@@ -126,9 +126,12 @@ def single_instance_guard():
         logging.warning(f"PID faylga yozishda xato: {e}")
 
     atexit.register(cleanup_pid)
+import html
 import re
+from collections import defaultdict
 from aiogram import Bot, Dispatcher, Router, F, BaseMiddleware
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramForbiddenError
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -261,11 +264,25 @@ async def get_bot_username() -> str:
         BOT_USERNAME = (await bot.get_me()).username
     return BOT_USERNAME
 
+class BoundedDict(dict):
+    """Xotirani tejovchi va o'lchami cheklangan lug'at (LRU uslubi)"""
+    def __init__(self, maxsize=5000):
+        super().__init__()
+        self.maxsize = maxsize
+
+    def __setitem__(self, key, value):
+        if len(self) >= self.maxsize:
+            old_keys = list(self.keys())[:500]
+            for k in old_keys:
+                super().pop(k, None)
+        super().__setitem__(key, value)
+
 _SUB_OK_CACHE = {}
 _SUB_OK_TTL = 90  # soniya: tezkor, xotirani tejovchi va qotmasdan ishlovchi kesh
-_ACTIVE_USER_VIDEO = {}  # (user_id, code) -> video_message_id
-_ACTIVE_POSTER_MSG = {}  # (user_id, code) -> poster_message_id
-_ACTIVE_EP_TRACKER = {}  # (user_id, code) -> current_episode_num
+_ACTIVE_USER_VIDEO = BoundedDict(5000)  # (user_id, code) -> video_message_id
+_ACTIVE_POSTER_MSG = BoundedDict(5000)  # (user_id, code) -> poster_message_id
+_ACTIVE_EP_TRACKER = BoundedDict(5000)  # (user_id, code) -> current_episode_num
+_USER_SWITCH_LOCK = defaultdict(asyncio.Lock)
 
 
 def purge_bytecode_and_cache():
@@ -428,21 +445,31 @@ def format_movie_caption(movie: dict, bot_username: str, current_ep: int = None,
     votes = movie.get("likes", 0)
     views = movie.get("views", 0)
 
+    m_name = html.escape(str(movie.get("name") or ""))
+    m_year = html.escape(str(movie.get("year") or "2024"))
+    m_country = html.escape(str(movie.get("country") or "AQSH"))
+    m_genre = html.escape(str(movie.get("genre") or "🔥 Jangari"))
+    m_quality = html.escape(str(movie.get("quality") or "1080p Full HD"))
+    m_lang = html.escape(str(movie.get("language") or "O‘zbek tilida"))
+    m_code = html.escape(str(movie.get("code") or ""))
+    raw_cap = str(movie.get("caption") or "").strip()
+    m_caption = html.escape(raw_cap) if raw_cap else ""
+
     if lang == "ru":
-        caption_extra = f"\n<blockquote>📖 <b>Описание:</b> <i>{movie['caption']}</i></blockquote>\n" if movie.get("caption") else ""
+        caption_extra = f"\n<blockquote>📖 <b>Описание:</b> <i>{m_caption}</i></blockquote>\n" if m_caption else ""
         ep_txt = f" <i>({current_ep}-серия)</i>" if current_ep else ""
         prot_badge = "🔒 <i>Контент защищен авторским правом (Пересылка закрыта)</i>\n" if protect else ""
         return (
-            f"🎬 <b>«{movie['name']}»</b>{ep_txt}\n"
+            f"🎬 <b>«{m_name}»</b>{ep_txt}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<blockquote>"
-            f"📅 <b>Год выпуска:</b> {movie.get('year', '2024')}\n"
-            f"🌏 <b>Страна:</b> {movie.get('country', 'AQSH')}\n"
-            f"🎞 <b>Жанр:</b> {movie.get('genre', '🔥 Jangari')}\n"
-            f"📀 <b>Качество:</b> {movie.get('quality', '1080p Full HD')}\n"
-            f"🇺🇿 <b>Озвучка:</b> {movie.get('language', 'O‘zbek tilida')}\n"
+            f"📅 <b>Год выпуска:</b> {m_year}\n"
+            f"🌏 <b>Страна:</b> {m_country}\n"
+            f"🎞 <b>Жанр:</b> {m_genre}\n"
+            f"📀 <b>Качество:</b> {m_quality}\n"
+            f"🇺🇿 <b>Озвучка:</b> {m_lang}\n"
             f"⭐ <b>Рейтинг:</b> {rating} / 10 ({votes} оценок)\n"
-            f"👁 <b>Просмотров:</b> {views:,} • 🔢 <b>Код:</b> <code>{movie['code']}</code>"
+            f"👁 <b>Просмотров:</b> {views:,} • 🔢 <b>Код:</b> <code>{m_code}</code>"
             f"</blockquote>"
             f"{caption_extra}"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -450,20 +477,20 @@ def format_movie_caption(movie: dict, bot_username: str, current_ep: int = None,
             f"📢 <b>Канал:</b> @movieee_land • 🤖 @{bot_username}"
         )
 
-    caption_extra = f"\n<blockquote>📖 <b>Tavsif:</b> <i>{movie['caption']}</i></blockquote>\n" if movie.get("caption") else ""
+    caption_extra = f"\n<blockquote>📖 <b>Tavsif:</b> <i>{m_caption}</i></blockquote>\n" if m_caption else ""
     ep_txt = f" <i>({current_ep}-qism)</i>" if current_ep else ""
     prot_badge = "🔒 <i>Kontent mualliflik huquqi bilan himoyalangan (Forward yopiq)</i>\n" if protect else ""
     return (
-        f"🎬 <b>«{movie['name']}»</b>{ep_txt}\n"
+        f"🎬 <b>«{m_name}»</b>{ep_txt}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<blockquote>"
-        f"📅 <b>Chiqarilgan yili:</b> {movie.get('year', '2024')}\n"
-        f"🌏 <b>Davlati:</b> {movie.get('country', 'AQSH')}\n"
-        f"🎞 <b>Janri:</b> {movie.get('genre', '🔥 Jangari')}\n"
-        f"📀 <b>Sifati:</b> {movie.get('quality', '1080p Full HD')}\n"
-        f"🇺🇿 <b>Tili / Ovoz:</b> {movie.get('language', 'O‘zbek tilida')}\n"
+        f"📅 <b>Chiqarilgan yili:</b> {m_year}\n"
+        f"🌏 <b>Davlati:</b> {m_country}\n"
+        f"🎞 <b>Janri:</b> {m_genre}\n"
+        f"📀 <b>Sifati:</b> {m_quality}\n"
+        f"🇺🇿 <b>Tili / Ovoz:</b> {m_lang}\n"
         f"⭐ <b>Reytingi:</b> {rating} / 10 ({votes} baho)\n"
-        f"👁 <b>Ko'rishlar:</b> {views:,} ta • 🔢 <b>Kodi:</b> <code>{movie['code']}</code>"
+        f"👁 <b>Ko'rishlar:</b> {views:,} ta • 🔢 <b>Kodi:</b> <code>{m_code}</code>"
         f"</blockquote>"
         f"{caption_extra}"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -757,6 +784,7 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = None, e
             )
             if sent_msg:
                 _ACTIVE_POSTER_MSG[(user_id, code)] = sent_msg.message_id
+                await db.save_active_session(user_id, code, poster_msg_id=sent_msg.message_id)
             return sent_msg
         except Exception as e:
             logging.warning(f"Poster card rasm yuborishda xato ({movie.get('photo_id')}): {e}")
@@ -770,13 +798,19 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = None, e
     )
     if sent_msg:
         _ACTIVE_POSTER_MSG[(user_id, code)] = sent_msg.message_id
+        await db.save_active_session(user_id, code, poster_msg_id=sent_msg.message_id)
     return sent_msg
 
 
 async def safely_delete_active_user_video(user_id: int, code: str):
-    """Foydalanuvchining joriy serial/kino videosini chatdan kafolatli o'chiradi"""
+    """Foydalanuvchining joriy serial/kino videosini chatdan kafolatli o'chiradi (DB va xotira orqali)."""
     msg_id = _ACTIVE_USER_VIDEO.pop((user_id, code), None)
+    if not msg_id:
+        sess = await db.get_active_session(user_id, code)
+        msg_id = sess.get("video_msg_id")
+
     if msg_id:
+        await db.clear_active_video_session(user_id, code)
         try:
             await bot.delete_message(chat_id=user_id, message_id=msg_id)
         except Exception:
@@ -854,6 +888,7 @@ async def send_movie_video(target, user_id: int, code: str, ep_num: int = 1):
 
     if sent:
         _ACTIVE_USER_VIDEO[(user_id, code)] = sent.message_id
+        await db.save_active_session(user_id, code, video_msg_id=sent.message_id, current_ep=current_ep or 1)
     return sent
 
 
@@ -1515,26 +1550,30 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
     last_update_time = time.monotonic()
 
     async def _probe_single(mid):
-        try:
-            fwd = await bot.forward_message(
-                chat_id=target_probe,
-                from_chat_id=arch_ch,
-                message_id=mid,
-                disable_notification=True
-            )
-            v_obj = fwd.video or fwd.document
-            raw_cap = fwd.caption or ""
-            fn = getattr(v_obj, "file_name", "") or ""
-            vh = getattr(v_obj, "height", 0) or 0
-            fid = v_obj.file_id if v_obj else ""
+        for _ in range(3):
             try:
-                await bot.delete_message(chat_id=target_probe, message_id=fwd.message_id)
+                fwd = await bot.forward_message(
+                    chat_id=target_probe,
+                    from_chat_id=arch_ch,
+                    message_id=mid,
+                    disable_notification=True
+                )
+                v_obj = fwd.video or fwd.document
+                raw_cap = fwd.caption or ""
+                fn = getattr(v_obj, "file_name", "") or ""
+                vh = getattr(v_obj, "height", 0) or 0
+                fid = v_obj.file_id if v_obj else ""
+                try:
+                    await bot.delete_message(chat_id=target_probe, message_id=fwd.message_id)
+                except Exception:
+                    pass
+                if fid:
+                    return (mid, fid, fn, vh, raw_cap)
+                return None
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after + 0.5)
             except Exception:
-                pass
-            if fid:
-                return (mid, fid, fn, vh, raw_cap)
-        except Exception:
-            pass
+                break
         return None
 
     for i in range(0, total_to_check, batch_size):
@@ -3972,36 +4011,48 @@ async def cb_watch_movie_or_episode(call: CallbackQuery):
         await call.answer()
         return
 
-    _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
+    async with _USER_SWITCH_LOCK[(user_id, code)]:
+        cur_active = _ACTIVE_EP_TRACKER.get((user_id, code))
+        if not cur_active:
+            sess = await db.get_active_session(user_id, code)
+            cur_active = sess.get("current_ep")
 
-    # Poster Card IDsini eslab qolamiz va undagi tugmani ▶️ {ep_num} ga yangilaymiz
-    if call.message:
-        _ACTIVE_POSTER_MSG[(user_id, code)] = call.message.message_id
-        try:
-            b_uname = await get_bot_username()
-            movie = await db.get_movie(code, increment_view=False)
-            episodes = await db.get_episodes(code)
-            is_fav = await db.is_favorite(user_id, code)
-            user_rating = await db.get_user_movie_rating(user_id, code)
-            user_perms = await db.get_user_permissions(user_id)
-            page = max(1, (ep_num - 1) // 30 + 1)
-            p_markup = kb.movie_poster_card_keyboard(
-                movie=movie,
-                bot_username=b_uname,
-                is_fav=is_fav,
-                episodes=episodes,
-                user_perms=user_perms,
-                lang=lang,
-                user_rating=user_rating,
-                ep_page=page,
-                current_ep=ep_num
-            )
-            await call.message.edit_reply_markup(reply_markup=p_markup)
-        except Exception:
-            pass
+        # Agar aynan shu qism hozir videoda ochiq bo'lsa
+        if cur_active == ep_num and (_ACTIVE_USER_VIDEO.get((user_id, code)) or (await db.get_active_session(user_id, code)).get("video_msg_id")):
+            await call.answer(f"▶️ {ep_num}-qism allaqachon ochilgan!")
+            return
 
-    await call.answer("▶️ Видео отправляется..." if lang == "ru" else f"▶️ {ep_num}-qism yuborilmoqda...")
-    await send_movie_video(call, user_id, code, ep_num=ep_num)
+        _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
+
+        # Poster Card IDsini eslab qolamiz va undagi tugmani ▶️ {ep_num} ga yangilaymiz
+        if call.message:
+            _ACTIVE_POSTER_MSG[(user_id, code)] = call.message.message_id
+            await db.save_active_session(user_id, code, poster_msg_id=call.message.message_id, current_ep=ep_num)
+            try:
+                b_uname = await get_bot_username()
+                movie = await db.get_movie(code, increment_view=False)
+                episodes = await db.get_episodes(code)
+                is_fav = await db.is_favorite(user_id, code)
+                user_rating = await db.get_user_movie_rating(user_id, code)
+                user_perms = await db.get_user_permissions(user_id)
+                page = max(1, (ep_num - 1) // 30 + 1)
+                p_markup = kb.movie_poster_card_keyboard(
+                    movie=movie,
+                    bot_username=b_uname,
+                    is_fav=is_fav,
+                    episodes=episodes,
+                    user_perms=user_perms,
+                    lang=lang,
+                    user_rating=user_rating,
+                    ep_page=page,
+                    current_ep=ep_num
+                )
+                await call.message.edit_reply_markup(reply_markup=p_markup)
+            except Exception:
+                pass
+
+        await call.answer("▶️ Видео отправляется..." if lang == "ru" else f"▶️ {ep_num}-qism yuborilmoqda...")
+        await send_movie_video(call, user_id, code, ep_num=ep_num)
 
 @dp.callback_query(F.data.startswith("eppage:"))
 async def cb_poster_episode_page(call: CallbackQuery):
@@ -4067,43 +4118,58 @@ async def cb_switch_episode(call: CallbackQuery):
         await call.answer("❌ Серия не найдена!" if lang == "ru" else "❌ Qism topilmadi!", show_alert=True)
         return
 
-    _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
-    await call.answer(f"▶️ {ep_num}-серия..." if lang == "ru" else f"▶️ {ep_num}-qism yuklanmoqda...")
+    async with _USER_SWITCH_LOCK[(user_id, code)]:
+        cur_active = _ACTIVE_EP_TRACKER.get((user_id, code))
+        if not cur_active:
+            sess = await db.get_active_session(user_id, code)
+            cur_active = sess.get("current_ep")
 
-    # 1. Joriy video xabarini va saqlangan faol videoni kafolatli o'chirish (toza almashish uchun)
-    await safely_delete_active_user_video(user_id, code)
-    if call.message:
-        try:
-            await call.message.delete()
-        except Exception:
-            pass
+        # Agar aynan shu qism hozir videoda ochiq bo'lsa
+        if cur_active == ep_num and (_ACTIVE_USER_VIDEO.get((user_id, code)) or (await db.get_active_session(user_id, code)).get("video_msg_id")):
+            await call.answer(f"▶️ {ep_num}-qism allaqachon ochilgan!")
+            return
 
-    # 2. Tepadagi Poster Card klaviaturasini ham yangilash (u yerda ham ▶️ {ep_num} bo'lib turadi!)
-    poster_msg_id = _ACTIVE_POSTER_MSG.get((user_id, code))
-    if poster_msg_id:
-        try:
-            episodes = await db.get_episodes(code)
-            is_fav = await db.is_favorite(user_id, code)
-            user_rating = await db.get_user_movie_rating(user_id, code)
-            user_perms = await db.get_user_permissions(user_id)
-            page = max(1, (ep_num - 1) // 30 + 1)
-            p_markup = kb.movie_poster_card_keyboard(
-                movie=movie,
-                bot_username=b_uname,
-                is_fav=is_fav,
-                episodes=episodes,
-                user_perms=user_perms,
-                lang=lang,
-                user_rating=user_rating,
-                ep_page=page,
-                current_ep=ep_num
-            )
-            await bot.edit_message_reply_markup(chat_id=user_id, message_id=poster_msg_id, reply_markup=p_markup)
-        except Exception:
-            pass
+        _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
+        await call.answer(f"▶️ {ep_num}-серия..." if lang == "ru" else f"▶️ {ep_num}-qism yuklanmoqda...")
 
-    # 3. Yangi qism videosini yuborish (tagida ▶️ {ep_num} ko'rinishida!)
-    await send_movie_video(call, user_id, code, ep_num=ep_num)
+        # 1. Joriy video xabarini va saqlangan faol videoni kafolatli o'chirish (toza almashish uchun)
+        await safely_delete_active_user_video(user_id, code)
+        if call.message:
+            try:
+                await call.message.delete()
+            except Exception:
+                pass
+
+        # 2. Tepadagi Poster Card klaviaturasini ham yangilash (u yerda ham ▶️ {ep_num} bo'lib turadi!)
+        poster_msg_id = _ACTIVE_POSTER_MSG.get((user_id, code))
+        if not poster_msg_id:
+            sess = await db.get_active_session(user_id, code)
+            poster_msg_id = sess.get("poster_msg_id")
+
+        if poster_msg_id:
+            try:
+                episodes = await db.get_episodes(code)
+                is_fav = await db.is_favorite(user_id, code)
+                user_rating = await db.get_user_movie_rating(user_id, code)
+                user_perms = await db.get_user_permissions(user_id)
+                page = max(1, (ep_num - 1) // 30 + 1)
+                p_markup = kb.movie_poster_card_keyboard(
+                    movie=movie,
+                    bot_username=b_uname,
+                    is_fav=is_fav,
+                    episodes=episodes,
+                    user_perms=user_perms,
+                    lang=lang,
+                    user_rating=user_rating,
+                    ep_page=page,
+                    current_ep=ep_num
+                )
+                await bot.edit_message_reply_markup(chat_id=user_id, message_id=poster_msg_id, reply_markup=p_markup)
+            except Exception:
+                pass
+
+        # 3. Yangi qism videosini yuborish (tagida ▶️ {ep_num} ko'rinishida!)
+        await send_movie_video(call, user_id, code, ep_num=ep_num)
 
 @dp.callback_query(F.data.startswith("rate:"))
 async def cb_rate_movie_stars(call: CallbackQuery):
@@ -5166,25 +5232,32 @@ async def broadcast_send_proc(message: Message, state: FSMContext):
     users = await db.get_all_users()
     status_msg = await message.answer(f"📤 Xabar <b>{len(users)}</b> ta foydalanuvchiga asinxron yuborilmoqda...", parse_mode="HTML")
 
-    sem = asyncio.Semaphore(25)
     sent, failed = 0, 0
+    batch_size = 30
 
-    async def send_one(uid):
-        nonlocal sent, failed
-        async with sem:
-            try:
-                await bot.copy_message(
-                    chat_id=uid,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id,
-                    reply_markup=message.reply_markup
-                )
-                sent += 1
-            except Exception:
-                failed += 1
-            await asyncio.sleep(0.04)
+    for i in range(0, len(users), batch_size):
+        chunk = users[i : i + batch_size]
+        async def send_one(uid):
+            nonlocal sent, failed
+            for _ in range(2):
+                try:
+                    await bot.copy_message(
+                        chat_id=uid,
+                        from_chat_id=message.chat.id,
+                        message_id=message.message_id,
+                        reply_markup=message.reply_markup
+                    )
+                    sent += 1
+                    return
+                except TelegramRetryAfter as e:
+                    await asyncio.sleep(e.retry_after + 0.1)
+                except Exception:
+                    break
+            failed += 1
 
-    await asyncio.gather(*(send_one(u) for u in users))
+        await asyncio.gather(*(send_one(u) for u in chunk))
+        await asyncio.sleep(0.05)
+
     perms = await db.get_user_permissions(message.from_user.id)
     role = await db.get_user_role(message.from_user.id)
     await status_msg.edit_text(
