@@ -1320,22 +1320,10 @@ async def execute_archive_grouped_serials_load(message: Message, target_count: i
         if not resolved_eps:
             continue
 
-        # Serial qismlarini tartiblaymiz
+        # Serial qismlarini tartiblaymiz va ketma-ket 1, 2, 3... N qilib qat'iy raqamlaymiz
         resolved_eps.sort(key=lambda x: (x["ep_num"], x["msg_id"]))
-
-        # Agar barcha qismlar bir xil qism raqami (masalan 1) bo'lib qolgan bo'lsa yoki dublikatlar bo'lsa ->
-        # ularni ketma-ket 1, 2, 3... qilib qat'iy qayta raqamlaymiz!
-        seen_nums = set()
-        need_reindex = False
-        for ep in resolved_eps:
-            if ep["ep_num"] in seen_nums:
-                need_reindex = True
-                break
-            seen_nums.add(ep["ep_num"])
-
-        if need_reindex:
-            for seq_idx, ep in enumerate(resolved_eps, 1):
-                ep["ep_num"] = seq_idx
+        for seq_idx, ep in enumerate(resolved_eps, 1):
+            ep["ep_num"] = seq_idx
 
         code = await db.get_next_auto_code()
         meta = await _archive_clean_meta(first_it, serial_title, is_serial=True)
@@ -3998,7 +3986,8 @@ async def cb_open_movie(call: CallbackQuery):
 async def cb_watch_movie_or_episode(call: CallbackQuery):
     """
     Poster Card ostidagi «▶️ Kino ko'rish» yoki «1, 2, 3, 4, 5...» qism tugmasi bosilganda
-    haqiqiy videoni yuboradi va poster kartasida tanlangan qismni ▶️ N qilib yangilaydi!
+    videoni yangilaydi (agar video mavjud bo'lsa chatda o'chirmasdan edit_media qiladi,
+    aks holda yangi video yuboradi)!
     """
     parts = call.data.split(":")
     code = parts[1]
@@ -4024,17 +4013,18 @@ async def cb_watch_movie_or_episode(call: CallbackQuery):
 
         _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
 
+        b_uname = await get_bot_username()
+        movie = await db.get_movie(code, increment_view=False)
+        episodes = await db.get_episodes(code)
+        is_fav = await db.is_favorite(user_id, code)
+        user_rating = await db.get_user_movie_rating(user_id, code)
+        user_perms = await db.get_user_permissions(user_id)
+
         # Poster Card IDsini eslab qolamiz va undagi tugmani ▶️ {ep_num} ga yangilaymiz
         if call.message:
             _ACTIVE_POSTER_MSG[(user_id, code)] = call.message.message_id
             await db.save_active_session(user_id, code, poster_msg_id=call.message.message_id, current_ep=ep_num)
             try:
-                b_uname = await get_bot_username()
-                movie = await db.get_movie(code, increment_view=False)
-                episodes = await db.get_episodes(code)
-                is_fav = await db.is_favorite(user_id, code)
-                user_rating = await db.get_user_movie_rating(user_id, code)
-                user_perms = await db.get_user_permissions(user_id)
                 page = max(1, (ep_num - 1) // 30 + 1)
                 p_markup = kb.movie_poster_card_keyboard(
                     movie=movie,
@@ -4051,8 +4041,47 @@ async def cb_watch_movie_or_episode(call: CallbackQuery):
             except Exception:
                 pass
 
-        await call.answer("▶️ Видео отправляется..." if lang == "ru" else f"▶️ {ep_num}-qism yuborilmoqda...")
-        await send_movie_video(call, user_id, code, ep_num=ep_num)
+        await call.answer("▶️ Видео..." if lang == "ru" else f"▶️ {ep_num}-qism...")
+
+        # Agar pastda video xabari allaqachon mavjud bo'lsa, uni ham o'chirmasdan edit_media bilan yangilaymiz!
+        active_vid_id = _ACTIVE_USER_VIDEO.get((user_id, code))
+        if not active_vid_id:
+            sess = await db.get_active_session(user_id, code)
+            active_vid_id = sess.get("video_msg_id")
+
+        refreshed = False
+        if active_vid_id:
+            try:
+                protect_val = await db.get_setting("protect_content", "1")
+                protect = (str(protect_val) == "1")
+                ep_obj = await db.get_episode(code, ep_num)
+                if ep_obj:
+                    v_caption = format_movie_caption(movie, b_uname, current_ep=ep_num, protect=protect, lang=lang)
+                    v_markup = kb.movie_action_keyboard(
+                        movie=movie,
+                        bot_username=b_uname,
+                        is_fav=is_fav,
+                        episodes=episodes,
+                        current_ep=ep_num,
+                        user_perms=user_perms,
+                        lang=lang,
+                        user_rating=user_rating
+                    )
+                    media = InputMediaVideo(
+                        media=ep_obj["file_id"],
+                        caption=v_caption,
+                        parse_mode="HTML"
+                    )
+                    await bot.edit_message_media(chat_id=user_id, message_id=active_vid_id, media=media, reply_markup=v_markup)
+                    refreshed = True
+                    _ACTIVE_USER_VIDEO[(user_id, code)] = active_vid_id
+                    await db.save_active_session(user_id, code, video_msg_id=active_vid_id, current_ep=ep_num)
+            except Exception:
+                refreshed = False
+
+        if not refreshed:
+            await send_movie_video(call, user_id, code, ep_num=ep_num)
+
 
 @dp.callback_query(F.data.startswith("eppage:"))
 async def cb_poster_episode_page(call: CallbackQuery):
@@ -4088,17 +4117,19 @@ async def cb_poster_episode_page(call: CallbackQuery):
         pass
     await call.answer(f"📄 Sahifa {page}")
 
+
 @dp.callback_query(F.data == "noop")
 async def cb_noop(call: CallbackQuery):
     await call.answer()
+
 
 @dp.callback_query(F.data.startswith("ep:"))
 async def cb_switch_episode(call: CallbackQuery):
     """
     Video ostidagi 1, 2, 3... qism tugmasi bosilganda:
-    - Eski videoni o'chiradi (dublikat bo'lmaydi);
-    - Yangi qism videosini yuboradi va tagidagi tugmada ▶️ N yonadi;
-    - Tepadagi Poster Card klaviaturasida ham tanlangan qism ▶️ N bo'lib turadi!
+    - Videoni chatda O'CHIRMASDAN to'g'ridan-to'g'ri yangilaydi (In-place edit_media);
+    - Yangi qism videosini yuklab, tugmada ▶️ N yonadi;
+    - Tepadagi Poster Card klaviaturasida ham tanlangan qism ▶️ N bo'lib sinxron yangilanadi!
     """
     b_uname = await get_bot_username()
     _, code, ep_str = call.data.split(":")
@@ -4132,15 +4163,14 @@ async def cb_switch_episode(call: CallbackQuery):
         _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
         await call.answer(f"▶️ {ep_num}-серия..." if lang == "ru" else f"▶️ {ep_num}-qism yuklanmoqda...")
 
-        # 1. Joriy video xabarini va saqlangan faol videoni kafolatli o'chirish (toza almashish uchun)
-        await safely_delete_active_user_video(user_id, code)
-        if call.message:
-            try:
-                await call.message.delete()
-            except Exception:
-                pass
+        episodes = await db.get_episodes(code)
+        is_fav = await db.is_favorite(user_id, code)
+        user_rating = await db.get_user_movie_rating(user_id, code)
+        user_perms = await db.get_user_permissions(user_id)
+        protect_val = await db.get_setting("protect_content", "1")
+        protect = (str(protect_val) == "1")
 
-        # 2. Tepadagi Poster Card klaviaturasini ham yangilash (u yerda ham ▶️ {ep_num} bo'lib turadi!)
+        # 1. Tepadagi Poster Card klaviaturasini ham yangilash (u yerda ham ▶️ {ep_num} bo'lib turadi!)
         poster_msg_id = _ACTIVE_POSTER_MSG.get((user_id, code))
         if not poster_msg_id:
             sess = await db.get_active_session(user_id, code)
@@ -4148,10 +4178,6 @@ async def cb_switch_episode(call: CallbackQuery):
 
         if poster_msg_id:
             try:
-                episodes = await db.get_episodes(code)
-                is_fav = await db.is_favorite(user_id, code)
-                user_rating = await db.get_user_movie_rating(user_id, code)
-                user_perms = await db.get_user_permissions(user_id)
                 page = max(1, (ep_num - 1) // 30 + 1)
                 p_markup = kb.movie_poster_card_keyboard(
                     movie=movie,
@@ -4168,8 +4194,44 @@ async def cb_switch_episode(call: CallbackQuery):
             except Exception:
                 pass
 
-        # 3. Yangi qism videosini yuborish (tagida ▶️ {ep_num} ko'rinishida!)
-        await send_movie_video(call, user_id, code, ep_num=ep_num)
+        # 2. Videoni chatda O'CHIRMASDAN to'g'ridan-to'g'ri yangilash (In-place Refresh)!
+        caption = format_movie_caption(movie, b_uname, current_ep=ep_num, protect=protect, lang=lang)
+        markup = kb.movie_action_keyboard(
+            movie=movie,
+            bot_username=b_uname,
+            is_fav=is_fav,
+            episodes=episodes,
+            current_ep=ep_num,
+            user_perms=user_perms,
+            lang=lang,
+            user_rating=user_rating
+        )
+
+        edited = False
+        if call.message and (call.message.video or call.message.document):
+            try:
+                media = InputMediaVideo(
+                    media=ep_obj["file_id"],
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+                await call.message.edit_media(media=media, reply_markup=markup)
+                edited = True
+                _ACTIVE_USER_VIDEO[(user_id, code)] = call.message.message_id
+                await db.save_active_session(user_id, code, video_msg_id=call.message.message_id, current_ep=ep_num)
+            except Exception as e:
+                logging.info(f"edit_media muvaffaqiyatsiz bo'ldi ({e}), oddiy almashtirishga o'tiladi")
+                edited = False
+
+        if not edited:
+            # Agar edit_media ishlamasa, eski videoni kafolatli o'chirib yangisini yuboramiz
+            await safely_delete_active_user_video(user_id, code)
+            if call.message:
+                try:
+                    await call.message.delete()
+                except Exception:
+                    pass
+            await send_movie_video(call, user_id, code, ep_num=ep_num)
 
 @dp.callback_query(F.data.startswith("rate:"))
 async def cb_rate_movie_stars(call: CallbackQuery):

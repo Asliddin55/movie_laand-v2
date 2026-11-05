@@ -776,11 +776,13 @@ def movie_action_keyboard(
                 cur_block = idx // 15
                 max_blocks = (total_eps - 1) // 15
                 if cur_block > 0:
-                    prev_ep = max(1, cur_block * 15)
+                    prev_idx = (cur_block - 1) * 15
+                    prev_ep = episodes[prev_idx]["episode_num"]
                     nav.append(InlineKeyboardButton(text="⬅️ Oldingi 15", callback_data=f"ep:{code}:{prev_ep}"))
                 nav.append(InlineKeyboardButton(text=f"🎞 {current_ep}/{total_eps}", callback_data="noop"))
                 if cur_block < max_blocks:
-                    next_ep = min(total_eps, (cur_block + 1) * 15 + 1)
+                    next_idx = min(total_eps - 1, (cur_block + 1) * 15)
+                    next_ep = episodes[next_idx]["episode_num"]
                     nav.append(InlineKeyboardButton(text="Keyingi 15 ➡️", callback_data=f"ep:{code}:{next_ep}"))
                 buttons.append(nav)
 
@@ -788,10 +790,12 @@ def movie_action_keyboard(
             step_row = []
             prev_lbl = "◀️ Предыдущая" if lang == "ru" else "◀️ Oldingi qism"
             next_lbl = "Следующая ⏩" if lang == "ru" else "Keyingi qism ⏩"
-            if current_ep > 1:
-                step_row.append(InlineKeyboardButton(text=prev_lbl, callback_data=f"ep:{code}:{current_ep - 1}"))
-            if current_ep < total_eps:
-                step_row.append(InlineKeyboardButton(text=next_lbl, callback_data=f"ep:{code}:{current_ep + 1}"))
+            if idx > 0:
+                prev_ep = episodes[idx - 1]["episode_num"]
+                step_row.append(InlineKeyboardButton(text=prev_lbl, callback_data=f"ep:{code}:{prev_ep}"))
+            if idx < total_eps - 1:
+                next_ep = episodes[idx + 1]["episode_num"]
+                step_row.append(InlineKeyboardButton(text=next_lbl, callback_data=f"ep:{code}:{next_ep}"))
             if step_row:
                 buttons.append(step_row)
 

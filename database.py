@@ -372,6 +372,30 @@ async def init_db():
             UPDATE archive_catalog SET is_imported = 0, imported_code = ''
             WHERE is_imported = 1 AND imported_code != '' AND imported_code NOT IN (SELECT code FROM movies);
         """)
+
+        # Foydalanuvchi talabi: Istalgan eski "Iztopar" seriali qoldiqlarini to'liq tozalash
+        async with db.execute("SELECT code FROM movies WHERE name LIKE '%iztopar%'") as cur:
+            iz_rows = await cur.fetchall()
+        for (iz_code,) in iz_rows:
+            await db.execute("DELETE FROM episodes WHERE movie_code = ?", (str(iz_code),))
+            await db.execute("DELETE FROM active_sessions WHERE movie_code = ?", (str(iz_code),))
+            await db.execute("DELETE FROM favorites WHERE movie_code = ?", (str(iz_code),))
+            await db.execute("DELETE FROM history WHERE movie_code = ?", (str(iz_code),))
+            await db.execute("DELETE FROM reactions WHERE movie_code = ?", (str(iz_code),))
+            await db.execute("DELETE FROM movies WHERE code = ?", (str(iz_code),))
+            await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE imported_code = ?", (str(iz_code),))
+
+        # archive_catalog dagi Iztopar qismlarini 1..43 qilib qat'iy tartiblash
+        async with db.execute("SELECT msg_id FROM archive_catalog WHERE base_title LIKE '%iztopar%' ORDER BY msg_id") as cur:
+            cat_iz = await cur.fetchall()
+        if cat_iz:
+            for seq_i, (m_id,) in enumerate(cat_iz, 1):
+                await db.execute("""
+                    UPDATE archive_catalog 
+                    SET part_num = ?, parsed_name = ?, is_imported = 0, imported_code = '', is_serial = 1, base_title = 'Iztopar Afsonasi'
+                    WHERE msg_id = ?
+                """, (seq_i, f"Iztopar Afsonasi ({seq_i}-qism)", m_id))
+
         await db.commit()
     finally:
         await db.close()
