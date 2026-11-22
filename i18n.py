@@ -1,281 +1,225 @@
-# ===================== 2 TILLI LOKALIZATSIYA TIZIMI (UZ / RU) =====================
+# ===================== 2 TILLI LOKALIZATSIYA TIZIMI (UZ / RU) — ULTIMATE MINIMAL =====================
+from config import pe
 
 DEFAULT_RULES_UZ = (
-    "📜 <b>MOVIE LAND ULTRA — BOT VA GURUH QOIDALARI</b>\n"
-    "━━━━━━━━━━━━━━━━━━\n"
-    "1️⃣ <b>Hurmat va odob:</b> Mavzuli guruhda so'kinish, haqorat qilish va urush chiqarish qat'iyan taqiqlanadi.\n"
-    "2️⃣ <b>Reklama taqiqlanadi:</b> Guruhda va bot orqali begona kanallar, botlar yoki havolalarni tarqatish — umrbod Ban.\n"
-    "3️⃣ <b>Bo'limlarga rioya qilish:</b>\n"
-    "   • 👑 <b>Чат Muhokama</b> — erkin suhbat va kinolar muhokamasi;\n"
-    "   • ⭐ <b>Buyurtmalar</b> — faqat kino so'rovlari uchun;\n"
-    "   • 💸 <b>Premium</b> — faqat VIP sotib olgan foydalanuvchilar fikri (otzivlari) uchun.\n"
-    "4️⃣ <b>To'lov va Cheklar:</b> Soxta (feyk) to'lov cheki yuborgan foydalanuvchilar botdan va guruhdan bloklanadi.\n"
-    "5️⃣ <b>Kontent himoyasi:</b> Botdagi barcha kinolar mualliflik va maxfiylik tizimi bilan himoyalangan.\n\n"
-    "📌 <b>Mavzuli guruhdagi qoidalar bo'limi:</b> <a href='https://t.me/movieeland_group/195'>💎 Правила Qoidalar</a>"
+    f"{pe('📜')} <b>MOVIE LAND ULTRA — QOIDALAR</b>\n\n"
+    "1️⃣ <b>Hurmat:</b> Guruhda so'kinish va haqorat taqiqlanadi.\n"
+    "2️⃣ <b>Reklama yo'q:</b> Begona havola va reklama — Ban.\n"
+    "3️⃣ <b>Bo'limlar:</b> 👑 Muhokama • ⭐ Buyurtmalar • 💸 Premium.\n"
+    "4️⃣ <b>To'lov:</b> Soxta chek yuborish — bloklash.\n\n"
+    "📌 <a href='https://t.me/movieeland_group/195'>💎 Guruh qoidalari</a>"
 )
 
 DEFAULT_RULES_RU = (
-    "📜 <b>MOVIE LAND ULTRA — ПРАВИЛА БОТА И ГРУППЫ</b>\n"
-    "━━━━━━━━━━━━━━━━━━\n"
-    "1️⃣ <b>Уважение и культура:</b> В тематической группе строго запрещены оскорбления, нецензурная лексика и конфликты.\n"
-    "2️⃣ <b>Запрет рекламы:</b> Спам, реклама сторонних каналов, ботов или ссылок карается вечным баном.\n"
-    "3️⃣ <b>Соблюдение разделов (Топиков):</b>\n"
-    "   • 👑 <b>Чат Muhokama</b> — общение и обсуждение фильмов;\n"
-    "   • ⭐ <b>Buyurtmalar</b> — только для заказов фильмов;\n"
-    "   • 💸 <b>Premium</b> — только для отзывов покупателей VIP.\n"
-    "4️⃣ <b>Оплата и чеки:</b> За отправку поддельных (фейковых) чеков оплаты — блокировка в боте и группе.\n"
-    "5️⃣ <b>Защита контента:</b> Все фильмы в боте защищены системой анти-пересылки.\n\n"
-    "📌 <b>Раздел правил в группе:</b> <a href='https://t.me/movieeland_group/195'>💎 Правила Qoidalar</a>"
+    f"{pe('📜')} <b>MOVIE LAND ULTRA — ПРАВИЛА</b>\n\n"
+    "1️⃣ <b>Уважение:</b> Оскорбления и конфликты запрещены.\n"
+    "2️⃣ <b>Без рекламы:</b> Спам и чужие ссылки — вечный бан.\n"
+    "3️⃣ <b>Разделы:</b> 👑 Общение • ⭐ Заказы • 💸 Отзывы.\n"
+    "4️⃣ <b>Оплата:</b> Поддельные чеки — блокировка.\n\n"
+    "📌 <a href='https://t.me/movieeland_group/195'>💎 Правила в группе</a>"
 )
 
 
 # User Main Menu Buttons (UZ & RU)
 BTN = {
     "search": {"uz": "🔍 Kino qidirish", "ru": "🔍 Поиск фильма"},
-    "random": {"uz": "🎲 Tasodifiy kino", "ru": "🎲 Случайный фильм"},
-    "top": {"uz": "🔥 Top-10 Kinolar", "ru": "🔥 Топ-10 Фильмов"},
+    "webapp": {"uz": "📱 Movie Land WebApp", "ru": "📱 Movie Land WebApp"},
+    "random": {"uz": "🎲 Tasodifiy", "ru": "🎲 Случайный"},
+    "top": {"uz": "🔥 Top Kinolar", "ru": "🔥 Топ Фильмы"},
     "new": {"uz": "🆕 Premyeralar", "ru": "🆕 Премьеры"},
-    "genres": {"uz": "🎭 Janrlar katalogi", "ru": "🎭 Каталог жанров"},
+    "genres": {"uz": "🎭 Janrlar", "ru": "🎭 Жанры"},
     "serials": {"uz": "🎞 Seriallar", "ru": "🎞 Сериалы"},
-    "earn": {"uz": "🎁 Kunlik Bonus & Pul ishlash", "ru": "🎁 Ежедневный бонус и Заработок"},
-    "topic_group": {"uz": "🌐 Mavzuli Guruh", "ru": "🌐 Тематическая группа"},
-    "favs": {"uz": "⭐ Sevimlilarim", "ru": "⭐ Избранное"},
-    "order": {"uz": "🎬 Kino buyurtma", "ru": "🎬 Заказать фильм"},
-    "vip_shop": {"uz": "💎 Premium (VIP) Do'kon", "ru": "💎 Магазин Premium (VIP)"},
-    "cabinet": {"uz": "👤 Shaxsiy Kabinet", "ru": "👤 Личный кабинет"},
+    "earn": {"uz": "🎁 Bonus & Referal", "ru": "🎁 Бонус и Рефералы"},
+    "topic_group": {"uz": "🌐 Guruh", "ru": "🌐 Группа"},
+    "favs": {"uz": "⭐ Sevimlilar", "ru": "⭐ Избранное"},
+    "order": {"uz": "🎬 Buyurtma", "ru": "🎬 Заказ"},
+    "vip_shop": {"uz": "💎 VIP Do'kon", "ru": "💎 VIP Магазин"},
+    "cabinet": {"uz": "👤 Kabinet", "ru": "👤 Кабинет"},
     "rules": {"uz": "📜 Qoidalar", "ru": "📜 Правила"},
     "lang": {"uz": "🌐 Til / Язык", "ru": "🌐 Язык / Til"},
     "cancel": {"uz": "❌ Bekor qilish", "ru": "❌ Отмена"},
     "user_menu": {"uz": "🏠 Foydalanuvchi menyusi", "ru": "🏠 Меню пользователя"},
 }
 
+# Eski tugma nomlarini ham qo'llab-quvvatlash (eskirgan klaviaturalar xato bermasligi uchun)
+LEGACY_BTN_ALIASES = {
+    "cabinet": ["👤 Shaxsiy Kabinet", "👤 Личный кабинет", "👤 Kabinet", "👤 Кабинет"],
+    "search": ["🔍 Kino qidirish", "🔍 Поиск фильма"],
+    "top": ["🔥 Top-10 Kinolar", "🔥 Топ-10 Фильмов", "🔥 Top Kinolar", "🔥 Топ Фильмы"],
+    "new": ["🆕 Premyeralar", "🆕 Премьеры"],
+    "genres": ["🎭 Janrlar katalogi", "🎭 Каталог жанров", "🎭 Janrlar", "🎭 Жанры"],
+    "serials": ["🎞 Seriallar", "🎞 Сериалы"],
+    "random": ["🎲 Tasodifiy kino", "🎲 Случайный фильм", "🎲 Tasodifiy", "🎲 Случайный"],
+    "earn": ["🎁 Kunlik Bonus & Pul ishlash", "🎁 Ежедневный бонус и Заработок", "🎁 Bonus & Referal", "🎁 Бонус и Рефералы"],
+    "vip_shop": ["💎 Premium (VIP) Do'kon", "💎 Магазин Premium (VIP)", "💎 VIP Do'kon", "💎 VIP Магазин"],
+    "topic_group": ["🌐 Mavzuli Guruh", "🌐 Тематическая группа", "🌐 Guruh", "🌐 Группа"],
+    "favs": ["⭐ Sevimlilarim", "⭐ Избранное", "⭐ Sevimlilar"],
+    "order": ["🎬 Kino buyurtma", "🎬 Заказать фильм", "🎬 Buyurtma", "🎬 Заказ"],
+    "rules": ["📜 Qoidalar", "📜 Правила"],
+    "lang": ["🌐 Til / Язык", "🌐 Язык / Til"],
+    "cancel": ["❌ Bekor qilish", "❌ Отмена"],
+    "user_menu": ["🏠 Foydalanuvchi menyusi", "🏠 Меню пользователя", "🏠 Asosiy menyu"],
+}
+
 
 def b_vals(key: str) -> list:
-    """Ikkala tildagi tugma matnlarini ro'yxat sifatida qaytaradi (F.text.in_(...) uchun)."""
+    """Ikkala tildagi va eski tugma matnlarini ro'yxat sifatida qaytaradi (F.text.in_(...) uchun)."""
     item = BTN.get(key, {})
-    return list(set(item.values()))
+    vals = set(item.values())
+    vals.update(LEGACY_BTN_ALIASES.get(key, []))
+    return list(vals)
 
 
 TEXTS = {
     "choose_lang": {
-        "uz": (
-            "🇺🇿 <b>Assalomu alaykum! Tilni tanlang:</b>\n"
-            "🇷🇺 <b>Здравствуйте! Пожалуйста, выберите язык бота:</b>"
-        ),
-        "ru": (
-            "🇷🇺 <b>Здравствуйте! Пожалуйста, выберите язык бота:</b>\n"
-            "🇺🇿 <b>Assalomu alaykum! Tilni tanlang:</b>"
-        ),
+        "uz": f"{pe('🇺🇿')} <b>Tilni tanlang / Выберите язык:</b>",
+        "ru": f"{pe('🇷🇺')} <b>Выберите язык / Tilni tanlang:</b>",
     },
     "lang_saved": {
-        "uz": "✅ <b>O'zbek tili tanlandi!</b> Barcha menyular o'zbek tiliga o'tkazildi.",
-        "ru": "✅ <b>Выбран русский язык!</b> Все разделы и меню переведены на русский язык.",
+        "uz": f"{pe('✅')} <b>O'zbek tili o'rnatildi.</b>",
+        "ru": f"{pe('✅')} <b>Установлен русский язык.</b>",
     },
     "banned": {
-        "uz": "🚫 <b>Siz botdan bloklangansiz!</b>",
-        "ru": "🚫 <b>Вы заблокированы в боте!</b>",
+        "uz": f"{pe('🚫')} <b>Siz bloklangansiz!</b>",
+        "ru": f"{pe('🚫')} <b>Вы заблокированы!</b>",
     },
     "maintenance": {
-        "uz": "🛠 <b>Botda hozir texnik ishlar olib borilmoqda. Tez orada ishga tushadi!</b>",
-        "ru": "🛠 <b>В боте ведутся технические работы. Скоро мы снова запустимся!</b>",
+        "uz": "🛠 <b>Texnik ishlar olib borilmoqda. Tez orada ishga tushadi!</b>",
+        "ru": "🛠 <b>Технические работы. Скоро запустимся!</b>",
     },
     "sub_prompt": {
         "uz": (
-            "✦ <b>MOVIE LAND ULTRA</b> ✦\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "👋 <b>Assalomu alaykum, {name}!</b>\n\n"
-            "<blockquote>🎬 <b>Botdan to'liq foydalanish uchun quyidagi rasmiy kanallarimizga obuna bo'ling:</b></blockquote>"
+            f"{pe('🎬')} <b>MOVIE LAND ULTRA</b>\n"
+            "<blockquote>👋 <b>{name}</b>, davom etish uchun rasmiy kanallarimizga obuna bo'ling:</blockquote>"
         ),
         "ru": (
-            "✦ <b>MOVIE LAND ULTRA</b> ✦\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "👋 <b>Здравствуйте, {name}!</b>\n\n"
-            "<blockquote>🎬 <b>Для полного доступа к боту подпишитесь на наши официальные каналы:</b></blockquote>"
+            f"{pe('🎬')} <b>MOVIE LAND ULTRA</b>\n"
+            "<blockquote>👋 <b>{name}</b>, подпишитесь на официальные каналы для доступа:</blockquote>"
         ),
     },
     "sub_not_all": {
-        "uz": "❌ <b>Hali barcha kanallarga obuna bo'lmadingiz!</b>\nIltimos, har bir kanalga a'zo bo'ling va qayta tekshiring.",
-        "ru": "❌ <b>Вы еще не подписались на все каналы!</b>\nПожалуйста, подпишитесь на каждый канал и проверьте снова.",
+        "uz": "❌ Barcha kanallarga obuna bo'ling!",
+        "ru": "❌ Подпишитесь на все каналы!",
     },
     "sub_ok": {
-        "uz": "✅ <b>Obuna muvaffaqiyatli tasdiqlandi!</b>\nMarhamat, bot imkoniyatlaridan to'liq foydalanishingiz mumkin.",
-        "ru": "✅ <b>Подписка успешно подтверждена!</b>\nДобро пожаловать, вы можете пользоваться ботом без ограничений.",
+        "uz": f"{pe('✅')} <b>Obuna tasdiqlandi!</b>",
+        "ru": f"{pe('✅')} <b>Подписка подтверждена!</b>",
     },
     "sub_first": {
         "uz": (
-            "✦ <b>MOVIE LAND ULTRA</b> ✦\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>⚠️ <b>Botdan foydalanishdan avval quyidagi kanallarga a'zo bo'ling!</b>\n\n"
-            "🚫 <i>Iltimos, botdan to'g'ri foydalanish uchun kanallardan chiqib ketishga urinmang.</i></blockquote>\n"
-            "👇 <i>Kanallarga obuna bo'lib, <b>«✅ Obunani tekshirish»</b> tugmasini bosing:</i>"
+            f"{pe('🔒')} <b>MOVIE LAND ULTRA</b>\n"
+            "<blockquote>⚠️ Kinolarni ko'rish uchun quyidagi kanallarga obuna bo'ling (kanallardan chiqib ketishga urinmang):</blockquote>"
         ),
         "ru": (
-            "✦ <b>MOVIE LAND ULTRA</b> ✦\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>⚠️ <b>Перед использованием бота подпишитесь на каналы ниже!</b>\n\n"
-            "🚫 <i>Пожалуйста, не пытайтесь выходить из каналов, чтобы правильно пользоваться ботом.</i></blockquote>\n"
-            "👇 <i>Подпишитесь на каналы и нажмите <b>«✅ Проверить подписку»</b>:</i>"
+            f"{pe('🔒')} <b>MOVIE LAND ULTRA</b>\n"
+            "<blockquote>⚠️ Подпишитесь на каналы ниже для просмотра (не покидайте каналы):</blockquote>"
         ),
     },
     "left_channel_warn": {
         "uz": (
-            "⚠️ <b>DIQQAT! KANALDAN CHIQISH ANIQLANDI</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>Siz majburiy obuna kanalimizdan («{title}») chiqib ketdingiz!\n\n"
-            "🚫 <b>Iltimos, botdan to'g'ri va uzluksiz foydalanish uchun kanallardan chiqib ketishga urinmang!</b>\n"
-            "Aks holda bot xizmatlaridan foydalanish cheklanadi.</blockquote>\n\n"
-            "👇 <i>Qayta obuna bo'ling va <b>«✅ Obunani tekshirish»</b> tugmasini bosing:</i>"
+            f"{pe('🚫')} <b>KANALDAN CHIQISH ANIQLANDI</b>\n"
+            "<blockquote>Siz «{title}» kanalidan chiqdingiz. Botdan foydalanish uchun kanallardan chiqib ketishga urinmang!</blockquote>"
         ),
         "ru": (
-            "⚠️ <b>ВНИМАНИЕ! ВЫХОД ИЗ КАНАЛА ОБНАРУЖЕН</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>Вы покинули наш обязательный канал («{title}»)!\n\n"
-            "🚫 <b>Пожалуйста, не пытайтесь выходить из каналов для непрерывной работы бота!</b>\n"
-            "При выходе доступ к просмотру фильмов блокируется.</blockquote>\n\n"
-            "👇 <i>Подпишитесь заново и нажмите <b>«✅ Проверить подписку»</b>:</i>"
+            f"{pe('🚫')} <b>ВЫХОД ИЗ КАНАЛА</b>\n"
+            "<blockquote>Вы покинули «{title}». Для работы бота не покидайте каналы!</blockquote>"
         ),
     },
     "sub_left_reminder": {
-        "uz": (
-            "⚠️ <b>Siz botdagi majburiy kanallardan chiqib ketgansiz!</b>\n\n"
-            "<blockquote>🚫 <i>Iltimos, botdan to'g'ri foydalanish uchun kanallardan chiqib ketishga urinmang!</i></blockquote>\n\n"
-            "👇 <i>Qayta a'zo bo'ling va <b>«✅ Obunani tekshirish»</b> tugmasini bosing:</i>"
-        ),
-        "ru": (
-            "⚠️ <b>Вы вышли из обязательных каналов бота!</b>\n\n"
-            "<blockquote>🚫 <i>Пожалуйста, не пытайтесь выходить из каналов, чтобы правильно пользоваться ботом!</i></blockquote>\n\n"
-            "👇 <i>Подпишитесь заново и нажмите <b>«✅ Проверить подписку»</b>:</i>"
-        ),
+        "uz": "⚠️ <b>Majburiy kanallarga qayta obuna bo'ling</b> (kanallardan chiqib ketishga urinmang):",
+        "ru": "⚠️ <b>Подпишитесь заново на обязательные каналы</b> (не покидайте каналы):",
     },
     "welcome": {
         "uz": (
-            "🍿 <b>MOVIE LAND ULTRA</b> ✦ <i>Kino Olami</i>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "✨ <b>Assalomu alaykum, {name}!</b>\n"
-            "Eng sara premyeralar, kino va seriallar platformasiga xush kelibsiz!\n\n"
-            "🎖 <b>Maqomingiz:</b> {vip_badge}\n\n"
-            "<blockquote>🔢 <b>Kino kodini</b> yuboring (masalan: <code>1</code>)\n"
-            "🔤 Yoki kino <b>nomi / kalit so'zini</b> yozib qidiring!</blockquote>\n\n"
-            "👇 <i>Quyidagi interaktiv menyudan kerakli bo'limni tanlang:</i>"
+            f"{pe('🍿')} <b>MOVIE LAND ULTRA</b>\n"
+            f"<blockquote>{pe('👤')} <b>{{name}}</b> • {{vip_badge}}\n"
+            f"{pe('🔍')} <i>Kino kodini yozing yoki Inline Katalog / WebApp ni oching:</i></blockquote>"
         ),
         "ru": (
-            "🍿 <b>MOVIE LAND ULTRA</b> ✦ <i>Мир Кино</i>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "✨ <b>Здравствуйте, {name}!</b>\n"
-            "Добро пожаловать на платформу кино и сериалов <b>MOVIE LAND ULTRA</b>!\n\n"
-            "🎖 <b>Ваш статус:</b> {vip_badge}\n\n"
-            "<blockquote>🔢 Отправьте <b>код фильма</b> (например: <code>1</code>)\n"
-            "🔤 Или напишите <b>название / ключевое слово</b> для поиска!</blockquote>\n\n"
-            "👇 <i>Воспользуйтесь интерактивным меню ниже:</i>"
+            f"{pe('🍿')} <b>MOVIE LAND ULTRA</b>\n"
+            f"<blockquote>{pe('👤')} <b>{{name}}</b> • {{vip_badge}}\n"
+            f"{pe('🔍')} <i>Отправьте код фильма или откройте Инлайн Каталог / WebApp:</i></blockquote>"
         ),
     },
     "vip_badge_active": {
-        "uz": "💎 <b>PREMIUM VIP [{tag}]</b>",
-        "ru": "💎 <b>PREMIUM VIP [{tag}]</b>",
+        "uz": f"{pe('💎')} <b>VIP [{{tag}}]</b>",
+        "ru": f"{pe('💎')} <b>VIP [{{tag}}]</b>",
     },
     "vip_badge_free": {
-        "uz": "👤 <b>Oddiy foydalanuvchi</b>",
-        "ru": "👤 <b>Обычный пользователь</b>",
+        "uz": "Standard",
+        "ru": "Standard",
     },
     "loading_movie": {
-        "uz": "🎬 <b>Kino yuklanmoqda...</b> <i>Kuting</i> ⏳",
-        "ru": "🎬 <b>Фильм загружается...</b> <i>Подождите</i> ⏳",
+        "uz": f"{pe('⏳')} <b>Yuklanmoqda...</b>",
+        "ru": f"{pe('⏳')} <b>Загрузка...</b>",
     },
     "movie_not_found_code": {
-        "uz": (
-            "❌ <b>#{code}</b> kodli kino topilmadi!\n\n"
-            "<blockquote>💡 <i>Kino nomini yozib qidirib ko'ring yoki <b>🎬 Kino buyurtma</b> bo'limidan so'rov qoldiring.</i></blockquote>"
-        ),
-        "ru": (
-            "❌ Фильм с кодом <b>#{code}</b> не найден!\n\n"
-            "<blockquote>💡 <i>Попробуйте найти по названию или оставьте заявку в разделе <b>🎬 Заказать фильм</b>.</i></blockquote>"
-        ),
+        "uz": f"{pe('❌')} <b>#{{code}}</b> kodli kino topilmadi.",
+        "ru": f"{pe('❌')} Фильм <b>#{{code}}</b> не найден.",
     },
     "movie_not_found_text": {
-        "uz": (
-            "❌ <b>«{q}»</b> bo'yicha hech narsa topilmadi.\n\n"
-            "<blockquote>💡 <i>Kino kodini to'g'ri kiriting yoki <b>«🎬 Kino buyurtma»</b> orqali buyurtma qoldiring!</i></blockquote>"
-        ),
-        "ru": (
-            "❌ По запросу <b>«{q}»</b> фильмы не найдены.\n\n"
-            "<blockquote>💡 <i>Проверьте код фильма или оставьте заявку через <b>«🎬 Заказать фильм»</b>!</i></blockquote>"
-        ),
+        "uz": f"{pe('❌')} <b>«{{q}}»</b> topilmadi. Inline katalog orqali qidiring.",
+        "ru": f"{pe('❌')} <b>«{{q}}»</b> не найдено. Воспользуйтесь инлайн-поиском.",
     },
     "cancelled": {
-        "uz": "✅ Amal bekor qilindi.",
-        "ru": "✅ Действие отменено.",
+        "uz": f"{pe('✅')} Bekor qilindi.",
+        "ru": f"{pe('✅')} Отменено.",
     },
     "search_prompt": {
-        "uz": (
-            "🔍 <b>AQLLI QIDIRUV TIZIMI</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>• Kino <b>kodini</b> yuboring (masalan: <code>1</code>)\n"
-            "• Yoki kino <b>nomini / so'zini</b> yozib yuboring:</blockquote>"
-        ),
-        "ru": (
-            "🔍 <b>УМНАЯ СИСТЕМА ПОИСКА</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>• Отправьте <b>код фильма</b> (например: <code>1</code>)\n"
-            "• Или напишите <b>название фильма / ключевое слово</b>:</blockquote>"
-        ),
+        "uz": f"{pe('🔍')} <b>Inline Katalog yoki kino kodini tanlang:</b>",
+        "ru": f"{pe('🔍')} <b>Откройте Инлайн Каталог или введите код:</b>",
     },
     "search_results": {
-        "uz": "🔍 <b>«{q}»</b> bo'yicha topilgan kinolar ({cnt} ta):",
-        "ru": "🔍 Найденные фильмы по запросу <b>«{q}»</b> ({cnt} шт.):",
+        "uz": f"{pe('🔍')} <b>«{{q}}»</b> ({'{cnt}'} ta):",
+        "ru": f"{pe('🔍')} <b>«{{q}}»</b> ({'{cnt}'} шт.):",
     },
     "choose_movie_above": {
-        "uz": "Kerakli kinoni tanlang 👆",
-        "ru": "Выберите нужный фильм выше 👆",
+        "uz": "Kinoni tanlang 👆",
+        "ru": "Выберите фильм 👆",
     },
     "genres_title": {
-        "uz": "🎭 <b>Janrlar katalogi:</b>\nO'zingizga yoqqan janrni tanlang:",
-        "ru": "🎭 <b>Каталог жанров:</b>\nВыберите интересующий вас жанр:",
+        "uz": f"{pe('🎭')} <b>Janrni tanlang:</b>",
+        "ru": f"{pe('🎭')} <b>Выберите жанр:</b>",
     },
     "genre_empty": {
-        "uz": "Hozircha {genre} janrida kinolar yo'q.",
-        "ru": "В жанре {genre} пока нет фильмов.",
+        "uz": "{genre} janrida kinolar yo'q.",
+        "ru": "В жанре {genre} пока пусто.",
     },
     "genre_list": {
-        "uz": "🎭 <b>{genre}</b> janridagi kinolar ({cnt} ta):",
-        "ru": "🎭 Фильмы в жанре <b>{genre}</b> ({cnt} шт.):",
+        "uz": f"{pe('🎭')} <b>{{genre}}</b> ({{cnt}} ta):",
+        "ru": f"{pe('🎭')} <b>{{genre}}</b> ({{cnt}} шт.):",
     },
     "db_empty": {
-        "uz": "📭 Hozircha bazada kinolar yo'q.",
-        "ru": "📭 В базе пока нет фильмов.",
+        "uz": "📭 Bazada hozircha kinolar yo'q.",
+        "ru": "📭 База фильмов пока пуста.",
     },
     "top_title": {
-        "uz": "🔥 <b>Eng ko'p tomosha qilingan TOP-10 kinolar:</b>",
-        "ru": "🔥 <b>ТОП-10 самых просматриваемых фильмов:</b>",
+        "uz": f"{pe('🔥')} <b>TOP Kinolar:</b>",
+        "ru": f"{pe('🔥')} <b>ТОП Фильмы:</b>",
     },
     "new_title": {
-        "uz": "🆕 <b>Botga yangi qo'shilgan premyera kinolar:</b>",
-        "ru": "🆕 <b>Новые премьеры, добавленные в бот:</b>",
+        "uz": f"{pe('🆕')} <b>Premyeralar:</b>",
+        "ru": f"{pe('🆕')} <b>Премьеры:</b>",
     },
     "serials_empty": {
-        "uz": "📭 Hozircha ko'p qismli seriallar qo'shilmagan.",
-        "ru": "📭 Многосерийные сериалы пока не добавлены.",
+        "uz": "📭 Seriallar hali qo'shilmagan.",
+        "ru": "📭 Сериалы пока не добавлены.",
     },
     "serials_title": {
-        "uz": "🎞 <b>Ko'p qismli Seriallar katalogi ({cnt} ta):</b>",
-        "ru": "🎞 <b>Каталог многосерийных сериалов ({cnt} шт.):</b>",
+        "uz": f"{pe('🎞')} <b>Seriallar ({{cnt}} ta):</b>",
+        "ru": f"{pe('🎞')} <b>Сериалы ({{cnt}} шт.):</b>",
     },
     "favs_empty": {
-        "uz": (
-            "⭐ <b>Sizda hali saqlangan kinolar yo'q.</b>\n\n"
-            "💡 <i>Kino ostidagi «⭐ Saqlab qo'yish» tugmasini bosib kinolarni shu bo'limga qo'shishingiz mumkin!</i>"
-        ),
-        "ru": (
-            "⭐ <b>У вас пока нет сохраненных фильмов.</b>\n\n"
-            "💡 <i>Нажмите кнопку «⭐ Сохранить» под любым фильмом, чтобы добавить его в избранное!</i>"
-        ),
+        "uz": f"{pe('⭐')} <b>Sevimlilar ro'yxati bo'sh.</b>",
+        "ru": f"{pe('⭐')} <b>Список избранного пуст.</b>",
     },
     "favs_title": {
-        "uz": "⭐ <b>Sevimli kinolaringiz ({cnt} ta):</b>",
-        "ru": "⭐ <b>Ваши избранные фильмы ({cnt} шт.):</b>",
+        "uz": f"{pe('⭐')} <b>Sevimlilar ({{cnt}} ta):</b>",
+        "ru": f"{pe('⭐')} <b>Избранное ({{cnt}} шт.):</b>",
     },
     "history_title": {
-        "uz": "🕓 <b>Oxirgi ko'rgan kinolaringiz:</b>",
-        "ru": "🕓 <b>Последние просмотренные фильмы:</b>",
+        "uz": "🕓 <b>Oxirgi ko'rilganlar:</b>",
+        "ru": "🕓 <b>История просмотра:</b>",
     },
 }
 

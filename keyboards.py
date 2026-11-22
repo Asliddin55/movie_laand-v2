@@ -1,7 +1,83 @@
 from urllib.parse import quote
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+)
 import config
 from i18n import BTN
+
+
+def _detect_custom_emoji_id(text: str) -> str | None:
+    """Tugma matnidagi emojiga mos rasmiy Telegram Premium Custom Emoji ID ni topadi."""
+    if not text:
+        return None
+    for em, eid in config.PREMIUM_EMOJI_MAP.items():
+        if text.startswith(em):
+            return eid
+    for em, eid in config.PREMIUM_EMOJI_MAP.items():
+        if em in text:
+            return eid
+    return None
+
+
+def _auto_detect_style(text: str, kwargs: dict) -> str | None:
+    """Tugma vazifasiga qarab avtomatik rang (primary=ko'k, success=yashil, danger=qizil) beradi."""
+    if not text:
+        return None
+    cb = str(kwargs.get("callback_data") or "")
+    siq = kwargs.get("switch_inline_query_current_chat")
+
+    if kwargs.get("web_app") is not None:
+        return "primary"
+    if siq == "":
+        return "success"
+    if siq == "top":
+        return "danger"
+    if siq in ("new", "serial"):
+        return "primary"
+
+    if any(k in text for k in ("▶️", "✅", "🟢", "🎁", "Kunlik Bonus", "Ежедневный бонус", "Tekshirish", "Проверить")):
+        return "success"
+    if any(k in text for k in ("🗑", "❌", "🛑", "🚫", "🔴", "🔥", "Rad etish", "O'chirish", "tozalash")):
+        return "danger"
+    if any(k in text for k in ("💎", "👑", "📢", "🌐", "🖼", "➕", "↗️", "⏩", "Keyingi", "Следующая", "📱", "📡", "🪄")):
+        return "primary"
+    if cb.startswith(("watch:", "check_sub", "sadm_pay_ok", "claim_daily", "done_order")):
+        return "success"
+    if cb.startswith(("delmov:", "sadm_pay_reject", "btn_shutdown_bot", "clear_movies")):
+        return "danger"
+    if cb.startswith(("open_vip_shop", "buy_vip:", "autopost", "editpic:", "addep:")):
+        return "primary"
+    return None
+
+
+def ibtn(text: str, style: str | None = "AUTO", icon_custom_emoji_id: str | None = "AUTO", **kwargs) -> InlineKeyboardButton:
+    """Rangli (style) va Premium Custom Emojili (icon_custom_emoji_id) Inline tugma yaratuvchi."""
+    if icon_custom_emoji_id == "AUTO":
+        icon_custom_emoji_id = _detect_custom_emoji_id(text)
+    if style == "AUTO":
+        style = _auto_detect_style(text, kwargs)
+    return InlineKeyboardButton(
+        text=text,
+        style=style,
+        icon_custom_emoji_id=icon_custom_emoji_id,
+        **kwargs
+    )
+
+
+def kbtn(text: str, style: str | None = None, icon_custom_emoji_id: str | None = "AUTO", **kwargs) -> KeyboardButton:
+    """Premium Custom Emojili va rangli Reply tugma yaratuvchi."""
+    if icon_custom_emoji_id == "AUTO":
+        icon_custom_emoji_id = _detect_custom_emoji_id(text)
+    return KeyboardButton(
+        text=text,
+        style=style,
+        icon_custom_emoji_id=icon_custom_emoji_id,
+        **kwargs
+    )
 
 
 # ===================== 0. TIL TANLASH INLINE =====================
@@ -10,71 +86,76 @@ def language_select_inline(movie_code: str = None):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🇺🇿 O'zbek tili ✦ UZ", callback_data=f"set_lang:uz{suffix}"),
-                InlineKeyboardButton(text="🇷🇺 Русский язык ✦ RU", callback_data=f"set_lang:ru{suffix}")
+                ibtn(text="🇺🇿 O'zbek tili", callback_data=f"set_lang:uz{suffix}", style="success"),
+                ibtn(text="🇷🇺 Русский язык", callback_data=f"set_lang:ru{suffix}", style="primary")
             ]
         ]
     )
 
 
-# ===================== 1. POLZOVATEL (FOYDALANUVCHI) IXCHAM REPLY VA INLINE PANELI (UZ / RU) =====================
+# ===================== 1. FOYDALANUVCHI IXCHAM REPLY VA INLINE PANELI (UZ / RU) =====================
 def user_main_keyboard(role: str = "user", lang: str = "uz"):
     """
-    Pastki Reply tugmalar maksimal darajada ixcham va chiroyli:
-    - 🔍 Kino qidirish
-    - 👤 Shaxsiy Kabinet | 🌐 Til / Язык
-    - (Agar Admin/SuperAdmin bo'lsa: 👮 Admin Panel | 👑 SUPER ADMIN PANEL)
-    Qolgan barcha bo'limlar chiroyli Inline menyuda chiqadi!
+    Pastki Reply tugmalardan oddiy «🔍 Kino qidirish» butkul olib tashlandi!
+    Qidiruv faqat Inline Katalog va WebApp orqali ishlaydi.
     """
     lang = "ru" if lang == "ru" else "uz"
     kb = [
-        [KeyboardButton(text=BTN["search"][lang])],
-        [KeyboardButton(text=BTN["cabinet"][lang]), KeyboardButton(text=BTN["lang"][lang])]
+        [
+            kbtn(text=BTN["cabinet"][lang], style="primary"),
+            kbtn(text=BTN["lang"][lang])
+        ]
     ]
     if role == "superadmin":
-        kb.append([KeyboardButton(text="👮 Admin Panel"), KeyboardButton(text="👑 SUPER ADMIN PANEL")])
+        kb.append([
+            kbtn(text="👮 Admin Panel", style="primary"),
+            kbtn(text="👑 SUPER ADMIN PANEL", style="danger")
+        ])
     elif role in ("moderator", "admin"):
-        kb.append([KeyboardButton(text="👮 Admin Panel")])
+        kb.append([kbtn(text="👮 Admin Panel", style="primary")])
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 
 def user_inline_dashboard(lang: str = "uz"):
-    """Bosh sahifadagi asosiy interaktiv Inline Menyu (Inline Search eng ustida!)."""
+    """Bosh sahifadagi asosiy interaktiv Rangli va Premium Emojili Inline Menyu."""
     lang = "ru" if lang == "ru" else "uz"
     inline_search_lbl = (
-        "🔍 В режиме Инлайн (Список с постерами)"
+        "🔍 Инлайн Каталог (С постерами)"
         if lang == "ru"
-        else "🔍 Inline rejimda (Rasmli Ro'yxat) qidirish"
+        else "🔍 Inline Qidiruv (Rasmli Katalog)"
+    )
+    webapp_lbl = (
+        "📱 Movie Land WebApp (Мини-Приложение)"
+        if lang == "ru"
+        else "📱 Movie Land WebApp (Mini Ilova)"
     )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=inline_search_lbl, switch_inline_query_current_chat="")
+                ibtn(text=inline_search_lbl, switch_inline_query_current_chat="", style="success")
             ],
             [
-                InlineKeyboardButton(text=BTN["top"][lang], switch_inline_query_current_chat="top"),
-                InlineKeyboardButton(text=BTN["new"][lang], switch_inline_query_current_chat="new")
+                ibtn(text=webapp_lbl, web_app=WebAppInfo(url=config.WEBAPP_URL), style="primary")
             ],
             [
-                InlineKeyboardButton(text=BTN["genres"][lang], callback_data="nav:genres"),
-                InlineKeyboardButton(text=BTN["serials"][lang], switch_inline_query_current_chat="serial")
+                ibtn(text=BTN["top"][lang], switch_inline_query_current_chat="top", style="danger"),
+                ibtn(text=BTN["new"][lang], switch_inline_query_current_chat="new", style="primary")
             ],
             [
-                InlineKeyboardButton(text=BTN["random"][lang], callback_data="nav:random"),
-                InlineKeyboardButton(text=BTN["order"][lang], callback_data="nav:order")
+                ibtn(text=BTN["genres"][lang], callback_data="nav:genres"),
+                ibtn(text=BTN["serials"][lang], switch_inline_query_current_chat="serial", style="primary")
             ],
             [
-                InlineKeyboardButton(text=BTN["earn"][lang], callback_data="go_earn_menu")
+                ibtn(text=BTN["random"][lang], callback_data="nav:random"),
+                ibtn(text=BTN["favs"][lang], callback_data="nav:favs")
             ],
             [
-                InlineKeyboardButton(text=BTN["vip_shop"][lang], callback_data="open_vip_shop")
+                ibtn(text=BTN["vip_shop"][lang], callback_data="open_vip_shop", style="primary"),
+                ibtn(text=BTN["earn"][lang], callback_data="go_earn_menu", style="success")
             ],
             [
-                InlineKeyboardButton(text=BTN["topic_group"][lang], callback_data="nav:topic_group")
-            ],
-            [
-                InlineKeyboardButton(text=BTN["favs"][lang], callback_data="nav:favs"),
-                InlineKeyboardButton(text=BTN["rules"][lang], callback_data="nav:rules")
+                ibtn(text=BTN["order"][lang], callback_data="nav:order"),
+                ibtn(text=BTN["topic_group"][lang], callback_data="nav:topic_group")
             ]
         ]
     )
@@ -86,50 +167,50 @@ def staff_panel_keyboard(perms: list, is_super: bool = False):
 
     if is_super or "archive_load" in perms or "add_movie" in perms:
         kb.append([
-            KeyboardButton(text="🗂 Arxiv boshqaruvi va Chala postlar"),
-            KeyboardButton(text="📥 Bazadan Kino yuklash")
+            kbtn(text="🗂 Arxiv boshqaruvi va Chala postlar"),
+            kbtn(text="📥 Bazadan Kino yuklash")
         ])
-        kb.append([KeyboardButton(text="📺 Bazadan Serial yuklash")])
+        kb.append([kbtn(text="📺 Bazadan Serial yuklash")])
 
     if is_super or "add_movie" in perms:
-        kb.append([KeyboardButton(text="➕ Kino qo'shish (Pro)"), KeyboardButton(text="⚡ Tezkor kino qo'shish")])
-        kb.append([KeyboardButton(text="🎞 Serial qismi qo'shish")])
+        kb.append([kbtn(text="➕ Kino qo'shish (Pro)"), kbtn(text="⚡ Tezkor kino qo'shish")])
+        kb.append([kbtn(text="🎞 Serial qismi qo'shish")])
 
     row2 = []
     if is_super or "del_movie" in perms:
-        row2.append(KeyboardButton(text="🗑 Kino o'chirish"))
+        row2.append(kbtn(text="🗑 Kino o'chirish"))
     if is_super or "orders" in perms:
-        row2.append(KeyboardButton(text="📩 Kino buyurtmalar"))
+        row2.append(kbtn(text="📩 Kino buyurtmalar"))
     if row2:
         kb.append(row2)
 
     row3 = []
     if is_super or "channels" in perms:
-        row3.append(KeyboardButton(text="📢 Kanallarni boshqarish"))
-        row3.append(KeyboardButton(text="🌐 Mavzuli Guruh Boshqaruvi"))
+        row3.append(kbtn(text="📢 Kanallarni boshqarish"))
+        row3.append(kbtn(text="🌐 Mavzuli Guruh Boshqaruvi"))
     if row3:
         kb.append(row3)
 
     row4 = []
     if is_super or "stats" in perms:
-        row4.append(KeyboardButton(text="📊 Statistika"))
+        row4.append(kbtn(text="📊 Statistika"))
     if is_super or "broadcast" in perms:
-        row4.append(KeyboardButton(text="✉️ Xabar yuborish"))
+        row4.append(kbtn(text="✉️ Xabar yuborish"))
     if row4:
         kb.append(row4)
 
     row5 = []
     if is_super or "users_ban" in perms:
-        row5.append(KeyboardButton(text="🚫 User qidirish va Ban"))
+        row5.append(kbtn(text="🚫 User qidirish va Ban"))
     if is_super or "vip_manage" in perms:
-        row5.append(KeyboardButton(text="💎 VIP, Narxlar va Bonuslar"))
+        row5.append(kbtn(text="💎 VIP, Narxlar va Bonuslar"))
     if row5:
         kb.append(row5)
 
     if is_super:
-        kb.append([KeyboardButton(text="👑 SUPER ADMIN PANEL")])
+        kb.append([kbtn(text="👑 SUPER ADMIN PANEL", style="danger")])
 
-    kb.append([KeyboardButton(text="🏠 Foydalanuvchi menyusi")])
+    kb.append([kbtn(text="🏠 Foydalanuvchi menyusi", style="success")])
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 
@@ -137,15 +218,15 @@ def staff_panel_keyboard(perms: list, is_super: bool = False):
 def super_admin_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🗂 Arxiv boshqaruvi va Chala postlar"), KeyboardButton(text="📥 Bazadan Kino yuklash")],
-            [KeyboardButton(text="📺 Bazadan Serial yuklash"), KeyboardButton(text="🗑 Faqat kinolar bazasini tozalash")],
-            [KeyboardButton(text="🖥 Server Holati va CPU Analiz"), KeyboardButton(text="🧹 Kesh va __pycache__ tozalash")],
-            [KeyboardButton(text="👁 Kinolarga Ko'rish qo'shish"), KeyboardButton(text="📊 Kengaytirilgan Statistika")],
-            [KeyboardButton(text="🌐 Mavzuli Guruh Boshqaruvi"), KeyboardButton(text="💎 VIP, Narxlar va Bonuslar")],
-            [KeyboardButton(text="👮 Lavozim va Ruxsatlar"), KeyboardButton(text="🧠 Top-15 AI Tizimi")],
-            [KeyboardButton(text="💾 Backup va Export/Import"), KeyboardButton(text="⚙️ Texnik Sozlamalar va Himoya")],
-            [KeyboardButton(text="🔐 Super-Parolni o'zgartirish"), KeyboardButton(text="🏠 Foydalanuvchi menyusi")],
-            [KeyboardButton(text="👮 Admin Panel")]
+            [kbtn(text="🗂 Arxiv boshqaruvi va Chala postlar"), kbtn(text="📥 Bazadan Kino yuklash")],
+            [kbtn(text="📺 Bazadan Serial yuklash"), kbtn(text="🗑 Faqat kinolar bazasini tozalash")],
+            [kbtn(text="🖥 Server Holati va CPU Analiz"), kbtn(text="🧹 Kesh va __pycache__ tozalash")],
+            [kbtn(text="👁 Kinolarga Ko'rish qo'shish"), kbtn(text="📊 Kengaytirilgan Statistika")],
+            [kbtn(text="🌐 Mavzuli Guruh Boshqaruvi"), kbtn(text="💎 VIP, Narxlar va Bonuslar")],
+            [kbtn(text="👮 Lavozim va Ruxsatlar"), kbtn(text="🧠 Top-15 AI Tizimi")],
+            [kbtn(text="💾 Backup va Export/Import"), kbtn(text="⚙️ Texnik Sozlamalar va Himoya")],
+            [kbtn(text="🔐 Super-Parolni o'zgartirish"), kbtn(text="🏠 Foydalanuvchi menyusi", style="success")],
+            [kbtn(text="👮 Admin Panel", style="primary")]
         ],
         resize_keyboard=True
     )
@@ -153,15 +234,15 @@ def super_admin_keyboard():
 def cancel_keyboard(lang: str = "uz"):
     lang = "ru" if lang == "ru" else "uz"
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BTN["cancel"][lang])]],
+        keyboard=[[kbtn(text=BTN["cancel"][lang], style="danger")]],
         resize_keyboard=True
     )
 
 def skip_or_cancel_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="⏭ O'tkazib yuborish")],
-            [KeyboardButton(text="❌ Bekor qilish")]
+            [kbtn(text="⏭ O'tkazib yuborish", style="primary")],
+            [kbtn(text="❌ Bekor qilish", style="danger")]
         ],
         resize_keyboard=True
     )
@@ -169,10 +250,10 @@ def skip_or_cancel_keyboard():
 def channels_manage_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📢 Ochiq kanal qo'shish"), KeyboardButton(text="🔒 Zayavkali kanal qo'shish")],
-            [KeyboardButton(text="🌐 Ijtimoiy tarmoq havolasi"), KeyboardButton(text="➖ Kanal o'chirish")],
-            [KeyboardButton(text="📋 Kanallar ro'yxati")],
-            [KeyboardButton(text="👮 Admin Panel")]
+            [kbtn(text="📢 Ochiq kanal qo'shish"), kbtn(text="🔒 Zayavkali kanal qo'shish")],
+            [kbtn(text="🌐 Ijtimoiy tarmoq havolasi"), kbtn(text="➖ Kanal o'chirish")],
+            [kbtn(text="📋 Kanallar ro'yxati")],
+            [kbtn(text="👮 Admin Panel")]
         ],
         resize_keyboard=True
     )
@@ -184,21 +265,21 @@ def earn_money_inline(ref_link: str, daily_amount: str, ref_amount: str, lang: s
         share_url = f"https://t.me/share/url?url={ref_link}&text=🎬 Лучший бот фильмов и сериалов! Заходи, получай ежедневный бонус и бесплатный VIP!"
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=f"🎁 Получить ежедневный бонус (+{int(daily_amount):,} сум)", callback_data="claim_daily")],
-                [InlineKeyboardButton(text=f"📲 Пригласить друзей (+{int(ref_amount):,} сум)", url=share_url)],
-                [InlineKeyboardButton(text="💎 Купить Premium (VIP) за баланс", callback_data="open_vip_shop")],
-                [InlineKeyboardButton(text="🏆 Топ богачей и рефералов", callback_data="show_leaderboard")],
-                [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_main_menu")]
+                [ibtn(text=f"🎁 Ежедневный бонус (+{int(daily_amount):,} сум)", callback_data="claim_daily", style="success")],
+                [ibtn(text=f"📲 Пригласить друзей (+{int(ref_amount):,} сум)", url=share_url, style="primary")],
+                [ibtn(text="💎 Купить VIP за баланс", callback_data="open_vip_shop", style="primary")],
+                [ibtn(text="🏆 Рейтинг", callback_data="show_leaderboard")],
+                [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
             ]
         )
     share_url = f"https://t.me/share/url?url={ref_link}&text=🎬 Eng yangi kinolar va seriallar botiga kiring, kunlik bonus oling va bepul VIP yuting!"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"🎁 Kunlik Bonusni olish (+{int(daily_amount):,} so'm)", callback_data="claim_daily")],
-            [InlineKeyboardButton(text=f"📲 Do'stlarni taklif qilish (+{int(ref_amount):,} so'm)", url=share_url)],
-            [InlineKeyboardButton(text="💎 Balansga Premium (VIP) sotib olish", callback_data="open_vip_shop")],
-            [InlineKeyboardButton(text="🏆 Top Boylar va Referallar Reytingi", callback_data="show_leaderboard")],
-            [InlineKeyboardButton(text="🔙 Asosiy menyuga qaytish", callback_data="back_main_menu")]
+            [ibtn(text=f"🎁 Kunlik Bonus (+{int(daily_amount):,} so'm)", callback_data="claim_daily", style="success")],
+            [ibtn(text=f"📲 Do'stlarni taklif qilish (+{int(ref_amount):,} so'm)", url=share_url, style="primary")],
+            [ibtn(text="💎 Balansga VIP xarid qilish", callback_data="open_vip_shop", style="primary")],
+            [ibtn(text="🏆 Top Reyting", callback_data="show_leaderboard")],
+            [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
         ]
     )
 
@@ -207,63 +288,50 @@ def earn_money_inline(ref_link: str, daily_amount: str, ref_amount: str, lang: s
 def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_tag: str = "PREMIUM", lang: str = "uz"):
     if lang == "ru":
         buttons = [
-            [InlineKeyboardButton(text=f"💎 VIP на 7 дней  ✦  {int(p7):,} сум", callback_data="buy_vip:7")],
-            [InlineKeyboardButton(text=f"🔥 VIP на 30 дней  ✦  {int(p30):,} сум", callback_data="buy_vip:30")],
-            [InlineKeyboardButton(text=f"👑 VIP на 90 дней  ✦  {int(p90):,} сум", callback_data="buy_vip:90")],
-            [InlineKeyboardButton(text="💳 Оплата картой (Отправить чек)", callback_data="pay_by_card")],
-            [InlineKeyboardButton(text="🎁 Бесплатные бонусы и рефералы", callback_data="go_earn_menu")],
-            [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_main_menu")]
+            [ibtn(text=f"💎 7 дней VIP ✦ {int(p7):,} сум", callback_data="buy_vip:7", style="primary")],
+            [ibtn(text=f"🔥 30 дней VIP ✦ {int(p30):,} сум", callback_data="buy_vip:30", style="danger")],
+            [ibtn(text=f"👑 90 дней VIP ✦ {int(p90):,} сум", callback_data="buy_vip:90", style="success")],
+            [ibtn(text="💳 Оплата картой (Чек)", callback_data="pay_by_card", style="primary")],
+            [ibtn(text="🎁 Бесплатные бонусы", callback_data="go_earn_menu", style="success")],
+            [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
         ]
         if is_vip:
-            buttons.insert(0, [
-                InlineKeyboardButton(text=f"🏷 Мой VIP Тег: [{cur_tag}] (Изменить)", callback_data="vip_choose_tag")
-            ])
-            buttons.insert(1, [
-                InlineKeyboardButton(text="⚡ Активировать тег [PREMIUM] в группе", callback_data="vip_apply_tags_now")
-            ])
-            buttons.insert(2, [
-                InlineKeyboardButton(text="💬 Оставить отзыв о Premium (в группу)", callback_data="vip_leave_review")
-            ])
+            buttons.insert(0, [ibtn(text=f"🏷 VIP Тег: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
+            buttons.insert(1, [ibtn(text="⚡ Активировать тег в группе", callback_data="vip_apply_tags_now", style="success")])
+            buttons.insert(2, [ibtn(text="💬 Оставить отзыв", callback_data="vip_leave_review")])
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     buttons = [
-        [InlineKeyboardButton(text=f"💎 7 Kunlik VIP  ✦  {int(p7):,} so'm", callback_data="buy_vip:7")],
-        [InlineKeyboardButton(text=f"🔥 30 Kunlik VIP  ✦  {int(p30):,} so'm", callback_data="buy_vip:30")],
-        [InlineKeyboardButton(text=f"👑 90 Kunlik VIP  ✦  {int(p90):,} so'm", callback_data="buy_vip:90")],
-        [InlineKeyboardButton(text="💳 Karta orqali to'lov (Chek yuborish)", callback_data="pay_by_card")],
-        [InlineKeyboardButton(text="🎁 Kunlik Bonus & Do'stlar orqali yig'ish", callback_data="go_earn_menu")],
-        [InlineKeyboardButton(text="🔙 Asosiy menyuga qaytish", callback_data="back_main_menu")]
+        [ibtn(text=f"💎 7 Kunlik VIP ✦ {int(p7):,} so'm", callback_data="buy_vip:7", style="primary")],
+        [ibtn(text=f"🔥 30 Kunlik VIP ✦ {int(p30):,} so'm", callback_data="buy_vip:30", style="danger")],
+        [ibtn(text=f"👑 90 Kunlik VIP ✦ {int(p90):,} so'm", callback_data="buy_vip:90", style="success")],
+        [ibtn(text="💳 Karta orqali to'lov (Chek)", callback_data="pay_by_card", style="primary")],
+        [ibtn(text="🎁 Bonus & Referal yig'ish", callback_data="go_earn_menu", style="success")],
+        [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
     ]
     if is_vip:
-        buttons.insert(0, [
-            InlineKeyboardButton(text=f"🏷 Mening VIP Tegim: [{cur_tag}] (O'zgartirish)", callback_data="vip_choose_tag")
-        ])
-        buttons.insert(1, [
-            InlineKeyboardButton(text="⚡ Mavzuli guruhda [PREMIUM] Tegni faollashtirish", callback_data="vip_apply_tags_now")
-        ])
-        buttons.insert(2, [
-            InlineKeyboardButton(text="💬 Premium haqida fikr (Otziv) qoldirish", callback_data="vip_leave_review")
-        ])
+        buttons.insert(0, [ibtn(text=f"🏷 VIP Tegim: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
+        buttons.insert(1, [ibtn(text="⚡ Guruhda [PREMIUM] Tegni yoqish", callback_data="vip_apply_tags_now", style="success")])
+        buttons.insert(2, [ibtn(text="💬 Fikr (Otziv) qoldirish", callback_data="vip_leave_review")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def vip_card_plan_select_inline(p7: str, p30: str, p90: str, lang: str = "uz"):
-    """Karta orqali to'lashda foydalanuvchi qaysi tarif uchun chek yuborayotganini tanlaydi."""
     if lang == "ru":
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=f"💎 Тариф 7 дней VIP — {int(p7):,} сум", callback_data="card_plan:7")],
-                [InlineKeyboardButton(text=f"🔥 Тариф 30 дней VIP — {int(p30):,} сум", callback_data="card_plan:30")],
-                [InlineKeyboardButton(text=f"👑 Тариф 90 дней VIP — {int(p90):,} сум", callback_data="card_plan:90")],
-                [InlineKeyboardButton(text="🔙 Назад в магазин VIP", callback_data="open_vip_shop")]
+                [ibtn(text=f"💎 7 дней VIP — {int(p7):,} сум", callback_data="card_plan:7", style="primary")],
+                [ibtn(text=f"🔥 30 дней VIP — {int(p30):,} сум", callback_data="card_plan:30", style="danger")],
+                [ibtn(text=f"👑 90 дней VIP — {int(p90):,} сум", callback_data="card_plan:90", style="success")],
+                [ibtn(text="🔙 Назад", callback_data="open_vip_shop")]
             ]
         )
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"💎 7 kunlik VIP tarifi — {int(p7):,} so'm", callback_data="card_plan:7")],
-            [InlineKeyboardButton(text=f"🔥 30 kunlik VIP tarifi — {int(p30):,} so'm", callback_data="card_plan:30")],
-            [InlineKeyboardButton(text=f"👑 90 kunlik VIP tarifi — {int(p90):,} so'm", callback_data="card_plan:90")],
-            [InlineKeyboardButton(text="🔙 VIP Do'konga qaytish", callback_data="open_vip_shop")]
+            [ibtn(text=f"💎 7 kunlik VIP — {int(p7):,} so'm", callback_data="card_plan:7", style="primary")],
+            [ibtn(text=f"🔥 30 kunlik VIP — {int(p30):,} so'm", callback_data="card_plan:30", style="danger")],
+            [ibtn(text=f"👑 90 kunlik VIP — {int(p90):,} so'm", callback_data="card_plan:90", style="success")],
+            [ibtn(text="🔙 Orqaga", callback_data="open_vip_shop")]
         ]
     )
 
@@ -272,54 +340,52 @@ def vip_tags_choice_inline(current_tag: str, lang: str = "uz"):
     buttons = []
     row = []
     for t in config.VIP_CUSTOM_TAGS:
-        mark = "✅ " if t == current_tag else "🏷 "
-        row.append(InlineKeyboardButton(text=f"{mark}{t}", callback_data=f"set_vtag:{t}"))
+        is_cur = (t == current_tag)
+        mark = "✅ " if is_cur else "🏷 "
+        row.append(ibtn(text=f"{mark}{t}", callback_data=f"set_vtag:{t}", style="success" if is_cur else None))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
     if lang == "ru":
-        buttons.append([InlineKeyboardButton(text="✍️ Написать свой собственный Тег", callback_data="custom_vtag_write")])
-        buttons.append([InlineKeyboardButton(text="🔙 Назад в магазин VIP", callback_data="open_vip_shop")])
+        buttons.append([ibtn(text="✍️ Свой собственный Тег", callback_data="custom_vtag_write", style="primary")])
+        buttons.append([ibtn(text="🔙 Назад", callback_data="open_vip_shop")])
     else:
-        buttons.append([InlineKeyboardButton(text="✍️ O'zim xohlagan maxsus Teg yozish", callback_data="custom_vtag_write")])
-        buttons.append([InlineKeyboardButton(text="🔙 VIP Do'konga qaytish", callback_data="open_vip_shop")])
+        buttons.append([ibtn(text="✍️ Maxsus Teg yozish", callback_data="custom_vtag_write", style="primary")])
+        buttons.append([ibtn(text="🔙 Orqaga", callback_data="open_vip_shop")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def vip_review_stars_inline(lang: str = "uz"):
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ (5/5 — A'lo / Отлично)", callback_data="rev_star:5")],
-            [InlineKeyboardButton(text="⭐⭐⭐⭐ (4/5 — Yaxshi / Хорошо)", callback_data="rev_star:4")],
-            [InlineKeyboardButton(text="⭐⭐⭐ (3/5 — O'rtacha / Нормально)", callback_data="rev_star:3")],
-            [InlineKeyboardButton(text="🔙 Orqaga / Назад", callback_data="open_vip_shop")]
+            [ibtn(text="⭐⭐⭐⭐⭐ (5/5)", callback_data="rev_star:5", style="success")],
+            [ibtn(text="⭐⭐⭐⭐ (4/5)", callback_data="rev_star:4", style="primary")],
+            [ibtn(text="⭐⭐⭐ (3/5)", callback_data="rev_star:3")],
+            [ibtn(text="🔙 Orqaga", callback_data="open_vip_shop")]
         ]
     )
 
 
 def payment_receipt_superadmin_inline(user_id: int, plan_days: int = 30):
-    """
-    ⚡ Активный Faolik bo'limiga va Super-Adminga boradigan chek ostidagi tugmalar.
-    FAQAT Super-Admin bosa oladi!
-    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text=f"✅ Tasdiqlash ({plan_days} kun VIP berish)",
-                    callback_data=f"sadm_pay_ok:{user_id}:{plan_days}"
+                ibtn(
+                    text=f"✅ Tasdiqlash ({plan_days} kun VIP)",
+                    callback_data=f"sadm_pay_ok:{user_id}:{plan_days}",
+                    style="success"
                 )
             ],
             [
-                InlineKeyboardButton(text="✅ 7k VIP", callback_data=f"sadm_pay_ok:{user_id}:7"),
-                InlineKeyboardButton(text="✅ 30k VIP", callback_data=f"sadm_pay_ok:{user_id}:30"),
-                InlineKeyboardButton(text="✅ 90k VIP", callback_data=f"sadm_pay_ok:{user_id}:90")
+                ibtn(text="✅ 7k VIP", callback_data=f"sadm_pay_ok:{user_id}:7", style="success"),
+                ibtn(text="✅ 30k VIP", callback_data=f"sadm_pay_ok:{user_id}:30", style="success"),
+                ibtn(text="✅ 90k VIP", callback_data=f"sadm_pay_ok:{user_id}:90", style="success")
             ],
             [
-                InlineKeyboardButton(text="💰 Balans qo'shish", callback_data=f"adm_pay_bal:{user_id}"),
-                InlineKeyboardButton(text="❌ Rad etish", callback_data=f"sadm_pay_reject:{user_id}")
+                ibtn(text="💰 Balans qo'shish", callback_data=f"adm_pay_bal:{user_id}", style="primary"),
+                ibtn(text="❌ Rad etish", callback_data=f"sadm_pay_reject:{user_id}", style="danger")
             ]
         ]
     )
@@ -330,69 +396,55 @@ def single_topic_group_user_inline(is_vip: bool, user_tag: str = "PREMIUM", lang
     base = config.MAIN_TOPIC_GROUP_LINK
     if lang == "ru":
         buttons = [
-            [InlineKeyboardButton(text="👑 Чат Muhokama (Общение)", url=f"{base}/{config.TOPIC_CHAT_ID}")],
+            [ibtn(text="👑 Чат Muhokama (Общение)", url=f"{base}/{config.TOPIC_CHAT_ID}", style="primary")],
             [
-                InlineKeyboardButton(text="⭐ Buyurtmalar (Заказы)", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
-                InlineKeyboardButton(text="💸 Premium (Отзывы)", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
+                ibtn(text="⭐ Заказы", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
+                ibtn(text="💸 Отзывы", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
             ],
             [
-                InlineKeyboardButton(text="💎 Qoidalar (Правила)", url=f"{base}/{config.TOPIC_RULES_ID}"),
-                InlineKeyboardButton(text="⚡ Faolik (Активность)", url=f"{base}/{config.TOPIC_ACTIVITY_ID}")
+                ibtn(text="💎 Правила", url=f"{base}/{config.TOPIC_RULES_ID}"),
+                ibtn(text="⚡ Активность", url=f"{base}/{config.TOPIC_ACTIVITY_ID}")
             ]
         ]
         if is_vip:
-            buttons.append([
-                InlineKeyboardButton(text=f"🏷 Обновить мой тег [{user_tag}] в группе", callback_data="vip_apply_tags_now")
-            ])
-            buttons.append([
-                InlineKeyboardButton(text="💬 Оставить отзыв в раздел 💸 Premium", callback_data="vip_leave_review")
-            ])
+            buttons.append([ibtn(text=f"🏷 Обновить тег [{user_tag}]", callback_data="vip_apply_tags_now", style="success")])
         else:
-            buttons.append([
-                InlineKeyboardButton(text="💎 Купить VIP для получения тега [PREMIUM] в группе!", callback_data="open_vip_shop")
-            ])
-        buttons.append([InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_main_menu")])
+            buttons.append([ibtn(text="💎 Получить тег [PREMIUM]", callback_data="open_vip_shop", style="primary")])
+        buttons.append([ibtn(text="🔙 Назад", callback_data="back_main_menu")])
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     buttons = [
-        [InlineKeyboardButton(text="👑 Чат Muhokama (Suhbat bo'limi)", url=f"{base}/{config.TOPIC_CHAT_ID}")],
+        [ibtn(text="👑 Чат Muhokama (Suhbat)", url=f"{base}/{config.TOPIC_CHAT_ID}", style="primary")],
         [
-            InlineKeyboardButton(text="⭐ Buyurtmalar bo'limi", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
-            InlineKeyboardButton(text="💸 Premium (Otzivlar)", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
+            ibtn(text="⭐ Buyurtmalar", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
+            ibtn(text="💸 Premium Otziv", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
         ],
         [
-            InlineKeyboardButton(text="💎 Qoidalar bo'limi", url=f"{base}/{config.TOPIC_RULES_ID}"),
-            InlineKeyboardButton(text="⚡ Faolik (Seanslar)", url=f"{base}/{config.TOPIC_ACTIVITY_ID}")
+            ibtn(text="💎 Qoidalar", url=f"{base}/{config.TOPIC_RULES_ID}"),
+            ibtn(text="⚡ Faolik", url=f"{base}/{config.TOPIC_ACTIVITY_ID}")
         ]
     ]
     if is_vip:
-        buttons.append([
-            InlineKeyboardButton(text=f"🏷 Guruhda [{user_tag}] tegimni faollashtirish!", callback_data="vip_apply_tags_now")
-        ])
-        buttons.append([
-            InlineKeyboardButton(text="💬 💸 Premium bo'limiga Otziv yozish", callback_data="vip_leave_review")
-        ])
+        buttons.append([ibtn(text=f"🏷 Guruhda [{user_tag}] tegni yoqish", callback_data="vip_apply_tags_now", style="success")])
     else:
-        buttons.append([
-            InlineKeyboardButton(text="💎 Guruhda [PREMIUM] tegi olish uchun VIP xarid qiling!", callback_data="open_vip_shop")
-        ])
-    buttons.append([InlineKeyboardButton(text="🔙 Asosiy menyuga qaytish", callback_data="back_main_menu")])
+        buttons.append([ibtn(text="💎 Guruhda [PREMIUM] tegi olish", callback_data="open_vip_shop", style="primary")])
+    buttons.append([ibtn(text="🔙 Orqaga", callback_data="back_main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def topic_channels_admin_inline(topic_channels: list):
     base = config.MAIN_TOPIC_GROUP_LINK
     buttons = [
-        [InlineKeyboardButton(text="🌐 Rasmiy Guruh: Movie Land Group (-1002748514315)", url=base)],
+        [ibtn(text="🌐 Movie Land Group (-1002748514315)", url=base, style="primary")],
         [
-            InlineKeyboardButton(text="⚡ Faolik (196)", url=f"{base}/{config.TOPIC_ACTIVITY_ID}"),
-            InlineKeyboardButton(text="💸 Premium (190)", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
+            ibtn(text="⚡ Faolik (196)", url=f"{base}/{config.TOPIC_ACTIVITY_ID}"),
+            ibtn(text="💸 Premium (190)", url=f"{base}/{config.TOPIC_PREMIUM_REVIEWS_ID}")
         ],
         [
-            InlineKeyboardButton(text="⭐ Buyurtmalar (193)", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
-            InlineKeyboardButton(text="💎 Qoidalar (195)", url=f"{base}/{config.TOPIC_RULES_ID}")
+            ibtn(text="⭐ Buyurtmalar (193)", url=f"{base}/{config.TOPIC_ORDERS_ID}"),
+            ibtn(text="💎 Qoidalar (195)", url=f"{base}/{config.TOPIC_RULES_ID}")
         ],
-        [InlineKeyboardButton(text="🔄 Barcha VIP a'zolarga guruhda Tegni yangilash", callback_data="adm_sync_all_vip_tags")]
+        [ibtn(text="🔄 Barcha VIP a'zolarga Tegni yangilash", callback_data="adm_sync_all_vip_tags", style="success")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -410,28 +462,28 @@ def vip_economy_admin_inline(
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"🎁 Kunlik Bonus: {int(daily_rew):,} so'm", callback_data="eco_set:daily_reward_amount"),
-                InlineKeyboardButton(text=f"👥 Referal: {int(ref_rew):,} so'm", callback_data="eco_set:ref_reward_amount")
+                ibtn(text=f"🎁 Bonus: {int(daily_rew):,}", callback_data="eco_set:daily_reward_amount", style="success"),
+                ibtn(text=f"👥 Referal: {int(ref_rew):,}", callback_data="eco_set:ref_reward_amount", style="primary")
             ],
             [
-                InlineKeyboardButton(text=f"💎 7k VIP: {int(p7):,} so'm", callback_data="eco_set:vip_7_price"),
-                InlineKeyboardButton(text=f"🔥 30k VIP: {int(p30):,} so'm", callback_data="eco_set:vip_30_price")
+                ibtn(text=f"💎 7k VIP: {int(p7):,}", callback_data="eco_set:vip_7_price"),
+                ibtn(text=f"🔥 30k VIP: {int(p30):,}", callback_data="eco_set:vip_30_price")
             ],
             [
-                InlineKeyboardButton(text=f"👑 90k VIP: {int(p90):,} so'm", callback_data="eco_set:vip_90_price"),
-                InlineKeyboardButton(text="💳 Karta raqamni sozlash", callback_data="eco_set:payment_card_info")
+                ibtn(text=f"👑 90k VIP: {int(p90):,}", callback_data="eco_set:vip_90_price"),
+                ibtn(text="💳 Karta raqam", callback_data="eco_set:payment_card_info", style="primary")
             ],
             [
-                InlineKeyboardButton(text=f"👤 Oddiy limit: {free_limit} ta/kun", callback_data="vip_chg_free"),
-                InlineKeyboardButton(text=f"💎 VIP limit: {vip_limit} ta/kun", callback_data="vip_chg_vip")
+                ibtn(text=f"👤 Limit: {free_limit}/kun", callback_data="vip_chg_free"),
+                ibtn(text=f"💎 VIP Limit: {vip_limit}/kun", callback_data="vip_chg_vip")
             ],
             [
-                InlineKeyboardButton(text="💎 Userga VIP berish", callback_data="vip_give"),
-                InlineKeyboardButton(text="❌ Userdan VIP olish", callback_data="vip_remove")
+                ibtn(text="💎 VIP berish", callback_data="vip_give", style="success"),
+                ibtn(text="❌ VIP olish", callback_data="vip_remove", style="danger")
             ],
             [
-                InlineKeyboardButton(text="💰 User balansiga pul qo'shish/ayirish", callback_data="eco_user_bal"),
-                InlineKeyboardButton(text="📋 VIP userlar ro'yxati", callback_data="vip_list")
+                ibtn(text="💰 Balans boshqaruvi", callback_data="eco_user_bal", style="primary"),
+                ibtn(text="📋 VIP ro'yxat", callback_data="vip_list")
             ]
         ]
     )
@@ -439,19 +491,19 @@ def vip_economy_admin_inline(
 
 # ===================== 8. ARXIV KANAL BOSHQARUVI INLINE =====================
 def archive_center_inline(auto_grab: str, auto_post: str, archive_ch: str, post_ch: str):
-    grab_txt = "🟢 Yoqilgan (Avto-qabul)" if auto_grab == "1" else "🔴 O'chirilgan"
+    grab_txt = "🟢 Yoqilgan" if auto_grab == "1" else "🔴 O'chirilgan"
     post_txt = "🟢 Yoqilgan" if auto_post == "1" else "🔴 O'chirilgan"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📡 Arxiv kanalni to'liq skanerlash", callback_data="arch_scan_channel")],
-            [InlineKeyboardButton(text="✨ Chala postlarni to'ldirish va tartiblash", callback_data="arch_ai_fix_posts")],
+            [ibtn(text="📡 Arxiv kanalni to'liq skanerlash", callback_data="arch_scan_channel", style="primary")],
+            [ibtn(text="✨ Chala postlarni to'ldirish va tartiblash", callback_data="arch_ai_fix_posts", style="primary")],
             [
-                InlineKeyboardButton(text="📥 10 ta kino yuklash", callback_data="arch_load_10"),
-                InlineKeyboardButton(text="📺 1 ta serial yuklash", callback_data="arch_load_1_serial")
+                ibtn(text="📥 10 ta kino yuklash", callback_data="arch_load_10", style="success"),
+                ibtn(text="📺 1 ta serial yuklash", callback_data="arch_load_1_serial", style="success")
             ],
-            [InlineKeyboardButton(text="🗑 Faqat kinolar bazasini tozalash", callback_data="clear_movies_confirm")],
-            [InlineKeyboardButton(text=f"🤖 Yangi kinolarni avto-olish: {grab_txt}", callback_data="arch_toggle_grab")],
-            [InlineKeyboardButton(text=f"📢 Kanalga avto-post: {post_txt}", callback_data="arch_toggle_post")]
+            [ibtn(text="🗑 Faqat kinolar bazasini tozalash", callback_data="clear_movies_confirm", style="danger")],
+            [ibtn(text=f"🤖 Avto-olish: {grab_txt}", callback_data="arch_toggle_grab")],
+            [ibtn(text=f"📢 Avto-post: {post_txt}", callback_data="arch_toggle_post")]
         ]
     )
 
@@ -459,16 +511,17 @@ def archive_center_inline(auto_grab: str, auto_post: str, archive_ch: str, post_
 # ===================== 9. GRANULAR PRIVILEGIYA VA RUXSATLAR INLINE =====================
 def staff_control_menu_inline(staff_list: list):
     buttons = [
-        [InlineKeyboardButton(text="➕ Chat ID orqali yangi Moder/Admin tayinlash", callback_data="sadm_add_staff")]
+        [ibtn(text="➕ Yangi Moder/Admin tayinlash", callback_data="sadm_add_staff", style="success")]
     ]
     for s in staff_list:
         uid = s["user_id"]
         role = s.get("role", "moderator")
         r_badge = {"moderator": "🛡 Moder", "admin": "👮 Admin", "superadmin": "👑 Super"}.get(role, "🛡 Staff")
         buttons.append([
-            InlineKeyboardButton(
+            ibtn(
                 text=f"{r_badge}: {s.get('full_name', 'User')} ({uid})",
-                callback_data=f"sadm_edit_staff:{uid}"
+                callback_data=f"sadm_edit_staff:{uid}",
+                style="primary"
             )
         ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -476,58 +529,63 @@ def staff_control_menu_inline(staff_list: list):
 def staff_permissions_inline(target_id: int, current_role: str, user_perms: list):
     buttons = [
         [
-            InlineKeyboardButton(
+            ibtn(
                 text=("✅ " if current_role == "moderator" else "") + "🛡 Moderator",
-                callback_data=f"setrole:{target_id}:moderator"
+                callback_data=f"setrole:{target_id}:moderator",
+                style="success" if current_role == "moderator" else None
             ),
-            InlineKeyboardButton(
+            ibtn(
                 text=("✅ " if current_role == "admin" else "") + "👮 Admin",
-                callback_data=f"setrole:{target_id}:admin"
+                callback_data=f"setrole:{target_id}:admin",
+                style="success" if current_role == "admin" else None
             ),
-            InlineKeyboardButton(
+            ibtn(
                 text=("✅ " if current_role == "superadmin" else "") + "👑 Super",
-                callback_data=f"setrole:{target_id}:superadmin"
+                callback_data=f"setrole:{target_id}:superadmin",
+                style="success" if current_role == "superadmin" else None
             )
         ]
     ]
 
     for perm_key, perm_label in config.PERMISSIONS.items():
         has_it = (current_role == "superadmin") or (perm_key in user_perms)
-        status_icon = "✅ Yoqilgan" if has_it else "❌ O'chirilgan"
+        status_icon = "✅" if has_it else "❌"
         buttons.append([
-            InlineKeyboardButton(
+            ibtn(
                 text=f"{perm_label}: {status_icon}",
-                callback_data=f"togperm:{target_id}:{perm_key}"
+                callback_data=f"togperm:{target_id}:{perm_key}",
+                style="success" if has_it else None
             )
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="🗑 Barcha huquqlarni olib tashlash (Oddiy User)", callback_data=f"setrole:{target_id}:user")
+        ibtn(text="🗑 Huquqlarni olib tashlash (Oddiy User)", callback_data=f"setrole:{target_id}:user", style="danger")
     ])
     buttons.append([
-        InlineKeyboardButton(text="🔙 Xodimlar ro'yxatiga qaytish", callback_data="sadm_back_staff")
+        ibtn(text="🔙 Orqaga", callback_data="sadm_back_staff")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # ===================== 10. TOP-15 AI VA BACKUP INLINE =====================
 def ai_dashboard_inline(ai_enabled: str, active_prov: str, configured_keys: dict):
-    status_txt = "🟢 YOQILGAN (Faol)" if ai_enabled == "1" else "🔴 O'CHIRILGAN"
+    status_txt = "🟢 YOQILGAN" if ai_enabled == "1" else "🔴 O'CHIRILGAN"
     active_name = config.TOP_15_AI_PROVIDERS.get(active_prov, {}).get("name", active_prov)
 
     buttons = [
-        [InlineKeyboardButton(text=f"⚡ AI Tizimi holati: {status_txt}", callback_data="ai_toggle_status")],
-        [InlineKeyboardButton(text=f"🎯 Hozirgi tanlangan: {active_name}", callback_data="ai_noop")],
-        [InlineKeyboardButton(text="🪄 Bazadagi barcha kinolarni AI da to'ldirish", callback_data="ai_run_batch")]
+        [ibtn(text=f"⚡ AI holati: {status_txt}", callback_data="ai_toggle_status")],
+        [ibtn(text=f"🎯 Tanlangan: {active_name}", callback_data="ai_noop", style="primary")],
+        [ibtn(text="🪄 Bazadagi kinolarni AI da to'ldirish", callback_data="ai_run_batch", style="success")]
     ]
 
     for p_key, p_info in config.TOP_15_AI_PROVIDERS.items():
-        has_key = "🔑 Token bor" if configured_keys.get(p_key) else "⚙️ Ichki AI"
+        has_key = "🔑 Token" if configured_keys.get(p_key) else "⚙️ Ichki"
         is_sel = "🎯 " if p_key == active_prov else ""
         buttons.append([
-            InlineKeyboardButton(
+            ibtn(
                 text=f"{is_sel}{p_info['name']} [{has_key}]",
-                callback_data=f"ai_select:{p_key}"
+                callback_data=f"ai_select:{p_key}",
+                style="success" if p_key == active_prov else None
             )
         ])
 
@@ -536,30 +594,30 @@ def ai_dashboard_inline(ai_enabled: str, active_prov: str, configured_keys: dict
 def ai_provider_detail_inline(p_key: str, has_token: bool):
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔑 API Token kiritish / yangilash", callback_data=f"ai_setkey:{p_key}")],
-            [InlineKeyboardButton(text="✅ Shu AI ni asosiy qilib tanlash va yoqish", callback_data=f"ai_activate:{p_key}")],
-            [InlineKeyboardButton(text="🧪 Test qilib ko'rish", callback_data=f"ai_test:{p_key}")],
-            [InlineKeyboardButton(text="🔙 AI ro'yxatiga qaytish", callback_data="ai_back_main")]
+            [ibtn(text="🔑 API Token kiritish", callback_data=f"ai_setkey:{p_key}", style="primary")],
+            [ibtn(text="✅ Asosiy qilib yoqish", callback_data=f"ai_activate:{p_key}", style="success")],
+            [ibtn(text="🧪 Test qilish", callback_data=f"ai_test:{p_key}")],
+            [ibtn(text="🔙 Orqaga", callback_data="ai_back_main")]
         ]
     )
 
 def backup_center_inline(auto_hours: str):
     if auto_hours == "168":
-        h_txt = "Har haftada (168 soat)"
+        h_txt = "Har haftada (168s)"
     elif auto_hours != "0":
         h_txt = f"Har {auto_hours} soatda"
     else:
         h_txt = "O'chirilgan"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📤 Hoziroq Arxiv Guruhga Backup Yuborish", callback_data="bkp_send_archive_now")],
-            [InlineKeyboardButton(text="📥 To'liq bazani yuklab olish (database.db)", callback_data="bkp_download_db")],
+            [ibtn(text="📤 Arxiv Guruhga Backup Yuborish", callback_data="bkp_send_archive_now", style="success")],
+            [ibtn(text="📥 Bazani yuklab olish (database.db)", callback_data="bkp_download_db", style="primary")],
             [
-                InlineKeyboardButton(text="📦 JSON Export (Kino+User)", callback_data="bkp_export_json"),
-                InlineKeyboardButton(text="📊 Excel/CSV Export", callback_data="bkp_export_csv")
+                ibtn(text="📦 JSON Export", callback_data="bkp_export_json"),
+                ibtn(text="📊 CSV Export", callback_data="bkp_export_csv")
             ],
-            [InlineKeyboardButton(text="📤 Baza Import qilish (.json yoki .db yuklash)", callback_data="bkp_import_start")],
-            [InlineKeyboardButton(text=f"⏰ Avto-Backup rejimi: {h_txt}", callback_data="bkp_toggle_auto")]
+            [ibtn(text="📤 Baza Import (.json / .db)", callback_data="bkp_import_start", style="primary")],
+            [ibtn(text=f"⏰ Avto-Backup: {h_txt}", callback_data="bkp_toggle_auto")]
         ]
     )
 
@@ -574,39 +632,39 @@ def subscription_keyboard(channels: list, movie_code: str = None, lang: str = "u
         link = ch.get("invite_link", "")
         if not link.startswith("http"):
             link = f"https://t.me/{link.lstrip('@')}"
-        buttons.append([InlineKeyboardButton(text=btn_text, url=link)])
+        buttons.append([ibtn(text=btn_text, url=link, style="primary")])
 
     cb_data = f"check_sub:{movie_code}" if movie_code else "check_sub"
     chk_txt = "✅ Я подписался / Проверить" if lang == "ru" else "✅ A'zo bo'ldim / Tekshirish"
-    buttons.append([InlineKeyboardButton(text=chk_txt, callback_data=cb_data)])
+    buttons.append([ibtn(text=chk_txt, callback_data=cb_data, style="success")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def genres_inline_keyboard(for_admin: bool = False, lang: str = "uz"):
     buttons = []
     if for_admin:
-        buttons.append([InlineKeyboardButton(text="🤖 AI o'zi janrni aniqlasin (Avto)", callback_data="adm_genre:auto")])
+        buttons.append([ibtn(text="🤖 AI o'zi aniqlasin (Avto)", callback_data="adm_genre:auto", style="primary")])
     row = []
     for g in config.GENRES:
         if for_admin:
-            row.append(InlineKeyboardButton(text=g, callback_data=f"adm_genre:{g}"))
+            row.append(ibtn(text=g, callback_data=f"adm_genre:{g}", style=None))
         else:
-            row.append(InlineKeyboardButton(text=g, switch_inline_query_current_chat=g))
+            row.append(ibtn(text=g, switch_inline_query_current_chat=g, style="primary"))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
     if not for_admin:
-        back_txt = "🔙 В главное меню" if lang == "ru" else "🔙 Asosiy menyuga qaytish"
-        buttons.append([InlineKeyboardButton(text=back_txt, callback_data="back_main_menu")])
+        back_txt = "🔙 Назад" if lang == "ru" else "🔙 Orqaga"
+        buttons.append([ibtn(text=back_txt, callback_data="back_main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def quality_inline_keyboard():
     qualities = ["480p SD", "720p HD", "1080p Full HD", "4K Ultra HD"]
     buttons = [
-        [InlineKeyboardButton(text="🤖 AI o'zi sifatni aniqlasin (Avto)", callback_data="adm_qual:auto")],
-        [InlineKeyboardButton(text=q, callback_data=f"adm_qual:{q}") for q in qualities[:2]],
-        [InlineKeyboardButton(text=q, callback_data=f"adm_qual:{q}") for q in qualities[2:]]
+        [ibtn(text="🤖 AI o'zi aniqlasin (Avto)", callback_data="adm_qual:auto", style="primary")],
+        [ibtn(text=q, callback_data=f"adm_qual:{q}", style=None) for q in qualities[:2]],
+        [ibtn(text=q, callback_data=f"adm_qual:{q}", style="success") for q in qualities[2:]]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -622,10 +680,8 @@ def movie_poster_card_keyboard(
     current_ep: int = None
 ):
     """
-    Kino yoki serial tanlanganida avval Poster Card chiqadi (reski video berilmaydi!):
-    - Agar qismlari <= 1 bo'lsa: [ ▶️ Kino ko'rish ]
-    - Agar qismlari 2 yoki 3 ta bo'lsa: [ ▶️ Kino ko'rish (1-qism) ] [ ▶️ Kino ko'rish (2-qism) ] ...
-    - Agar qismlari 3 tadan ko'p bo'lsa (yoki serial bo'lsa): [ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ] ...
+    Poster Card klaviaturasi — rangli (style) va Premium Custom Emojili (icon_custom_emoji_id)!
+    Tanlangan qism yashil (success) rangda ▶️ N bo'lib yonib turadi.
     """
     code = movie["code"]
     user_perms = user_perms or []
@@ -636,22 +692,23 @@ def movie_poster_card_keyboard(
     if total_eps <= 1:
         watch_lbl = "▶️ Смотреть фильм" if lang == "ru" else "▶️ Kino ko'rish"
         buttons.append([
-            InlineKeyboardButton(text=watch_lbl, callback_data=f"watch:{code}:1")
+            ibtn(text=watch_lbl, callback_data=f"watch:{code}:1", style="success")
         ])
     elif 2 <= total_eps <= 3:
         ep_word = "ч." if lang == "ru" else "qism"
         watch_prefix = "▶️ Смотреть" if lang == "ru" else "▶️ Kino ko'rish"
         for ep in episodes:
             ep_num = ep["episode_num"]
-            play_icon = "▶️ " if (current_ep and ep_num == current_ep) else ""
+            is_cur = bool(current_ep and ep_num == current_ep)
+            play_icon = "▶️ " if is_cur else ""
             buttons.append([
-                InlineKeyboardButton(
+                ibtn(
                     text=f"{play_icon}{watch_prefix} ({ep_num}-{ep_word})",
-                    callback_data=f"watch:{code}:{ep_num}"
+                    callback_data=f"watch:{code}:{ep_num}",
+                    style="success" if is_cur else "primary"
                 )
             ])
     else:
-        # 3 tadan ko'p qism yoki serial: 1 2 3 4 5 ... ko'rinishida
         per_page = 30
         total_pages = max(1, (total_eps + per_page - 1) // per_page)
         if current_ep:
@@ -665,8 +722,16 @@ def movie_poster_card_keyboard(
         row = []
         for ep in page_eps:
             ep_num = ep["episode_num"]
-            btn_txt = f"▶️ {ep_num}" if (current_ep and ep_num == current_ep) else f"{ep_num}"
-            row.append(InlineKeyboardButton(text=btn_txt, callback_data=f"watch:{code}:{ep_num}"))
+            is_cur = bool(current_ep and ep_num == current_ep)
+            btn_txt = f"▶️ {ep_num}" if is_cur else f"{ep_num}"
+            row.append(
+                InlineKeyboardButton(
+                    text=btn_txt,
+                    callback_data=f"watch:{code}:{ep_num}",
+                    style="success" if is_cur else None,
+                    icon_custom_emoji_id=config.PREMIUM_EMOJI_MAP["▶️"] if is_cur else None
+                )
+            )
             if len(row) == 5:
                 buttons.append(row)
                 row = []
@@ -676,50 +741,58 @@ def movie_poster_card_keyboard(
         if total_pages > 1:
             nav_row = []
             if ep_page > 1:
-                nav_row.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"eppage:{code}:{ep_page - 1}"))
+                nav_row.append(ibtn(text="⬅️ Oldingi", callback_data=f"eppage:{code}:{ep_page - 1}", style="primary"))
             nav_row.append(InlineKeyboardButton(text=f"📄 {ep_page}/{total_pages}", callback_data="noop"))
             if ep_page < total_pages:
-                nav_row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"eppage:{code}:{ep_page + 1}"))
+                nav_row.append(ibtn(text="Keyingi ➡️", callback_data=f"eppage:{code}:{ep_page + 1}", style="primary"))
             buttons.append(nav_row)
 
     # 5 talik yulduzcha baholash qatori
     star_row = []
     for s in range(1, 6):
-        lbl = f"🌟 {s}" if user_rating == s else f"⭐ {s}"
-        star_row.append(InlineKeyboardButton(text=lbl, callback_data=f"rate:{code}:{s}"))
+        is_sel = (user_rating == s)
+        lbl = f"🌟 {s}" if is_sel else f"⭐ {s}"
+        star_row.append(
+            InlineKeyboardButton(
+                text=lbl,
+                callback_data=f"rate:{code}:{s}",
+                style="success" if is_sel else None,
+                icon_custom_emoji_id=config.PREMIUM_EMOJI_MAP["🌟" if is_sel else "⭐"]
+            )
+        )
     buttons.append(star_row)
 
     deep_link_enc = quote(f"https://t.me/{bot_username}?start={code}")
     if lang == "ru":
         fav_text = "✅ В избранном" if is_fav else "⭐ Сохранить"
         share_txt = "↗️ Поделиться"
-        share_cap_enc = quote(f"🎬 {movie['name']} — Смотрите фильм в боте!")
+        share_cap_enc = quote(f"🎬 {movie['name']} — Смотрите в боте!")
         share_url = f"https://t.me/share/url?url={deep_link_enc}&text={share_cap_enc}"
     else:
-        fav_text = "✅ Saqlangan" if is_fav else "⭐ Saqlab qo'yish"
+        fav_text = "✅ Saqlangan" if is_fav else "⭐ Saqlash"
         share_txt = "↗️ Ulashish"
-        share_cap_enc = quote(f"🎬 {movie['name']} — Kinoni bot orqali tomosha qiling!")
+        share_cap_enc = quote(f"🎬 {movie['name']} — Bot orqali tomosha qiling!")
         share_url = f"https://t.me/share/url?url={deep_link_enc}&text={share_cap_enc}"
 
     buttons.append([
-        InlineKeyboardButton(text=fav_text, callback_data=f"fav:{code}"),
-        InlineKeyboardButton(text=share_txt, url=share_url)
+        ibtn(text=fav_text, callback_data=f"fav:{code}", style="success" if is_fav else None),
+        ibtn(text=share_txt, url=share_url, style="primary")
     ])
 
     adm_row1 = []
     if "add_movie" in user_perms or "autopost" in user_perms:
         has_pic = "🖼 Rasm yangilash" if movie.get("photo_id") else "🖼 Rasm qo'shish"
-        adm_row1.append(InlineKeyboardButton(text=has_pic, callback_data=f"editpic:{code}"))
+        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}", style="primary"))
     if "autopost" in user_perms:
-        adm_row1.append(InlineKeyboardButton(text="📢 Kanalga Post", callback_data=f"autopost:{code}"))
+        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}", style="success"))
     if adm_row1:
         buttons.append(adm_row1)
 
     adm_row2 = []
     if "add_movie" in user_perms:
-        adm_row2.append(InlineKeyboardButton(text="➕ Qism ulash", callback_data=f"addep:{code}"))
+        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}", style="primary"))
     if "del_movie" in user_perms:
-        adm_row2.append(InlineKeyboardButton(text="🗑 O'chirish", callback_data=f"delmov:{code}"))
+        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}", style="danger"))
     if adm_row2:
         buttons.append(adm_row2)
 
@@ -738,33 +811,48 @@ def movie_action_keyboard(
 ):
     code = movie["code"]
     user_perms = user_perms or []
-
     buttons = []
 
     if episodes and len(episodes) > 1:
         total_eps = len(episodes)
+        idx = 0
+        for i, ep in enumerate(episodes):
+            if ep["episode_num"] == current_ep:
+                idx = i
+                break
+
         if total_eps <= 3:
             ep_row = []
             ep_word = "серия" if lang == "ru" else "qism"
             for ep in episodes:
                 ep_num = ep["episode_num"]
-                label = f"▶️ {ep_num}-{ep_word}" if ep_num == current_ep else f"{ep_num}-{ep_word}"
-                ep_row.append(InlineKeyboardButton(text=label, callback_data=f"ep:{code}:{ep_num}"))
+                is_cur = (ep_num == current_ep)
+                label = f"▶️ {ep_num}-{ep_word}" if is_cur else f"{ep_num}-{ep_word}"
+                ep_row.append(
+                    InlineKeyboardButton(
+                        text=label,
+                        callback_data=f"ep:{code}:{ep_num}",
+                        style="success" if is_cur else None,
+                        icon_custom_emoji_id=config.PREMIUM_EMOJI_MAP["▶️"] if is_cur else None
+                    )
+                )
             buttons.append(ep_row)
         else:
-            # Agar qismlar > 3 bo'lsa, joriy qism turgan 15 talik blokni 1 2 3 4 5 qilib chiqaramiz
-            idx = 0
-            for i, ep in enumerate(episodes):
-                if ep["episode_num"] == current_ep:
-                    idx = i
-                    break
             block_start = (idx // 15) * 15
             window_eps = episodes[block_start : block_start + 15]
             ep_row = []
             for ep in window_eps:
                 ep_num = ep["episode_num"]
-                label = f"▶️ {ep_num}" if ep_num == current_ep else f"{ep_num}"
-                ep_row.append(InlineKeyboardButton(text=label, callback_data=f"ep:{code}:{ep_num}"))
+                is_cur = (ep_num == current_ep)
+                label = f"▶️ {ep_num}" if is_cur else f"{ep_num}"
+                ep_row.append(
+                    InlineKeyboardButton(
+                        text=label,
+                        callback_data=f"ep:{code}:{ep_num}",
+                        style="success" if is_cur else None,
+                        icon_custom_emoji_id=config.PREMIUM_EMOJI_MAP["▶️"] if is_cur else None
+                    )
+                )
                 if len(ep_row) == 5:
                     buttons.append(ep_row)
                     ep_row = []
@@ -778,12 +866,12 @@ def movie_action_keyboard(
                 if cur_block > 0:
                     prev_idx = (cur_block - 1) * 15
                     prev_ep = episodes[prev_idx]["episode_num"]
-                    nav.append(InlineKeyboardButton(text="⬅️ Oldingi 15", callback_data=f"ep:{code}:{prev_ep}"))
+                    nav.append(ibtn(text="⬅️ Oldingi 15", callback_data=f"ep:{code}:{prev_ep}", style="primary"))
                 nav.append(InlineKeyboardButton(text=f"🎞 {current_ep}/{total_eps}", callback_data="noop"))
                 if cur_block < max_blocks:
                     next_idx = min(total_eps - 1, (cur_block + 1) * 15)
                     next_ep = episodes[next_idx]["episode_num"]
-                    nav.append(InlineKeyboardButton(text="Keyingi 15 ➡️", callback_data=f"ep:{code}:{next_ep}"))
+                    nav.append(ibtn(text="Keyingi 15 ➡️", callback_data=f"ep:{code}:{next_ep}", style="primary"))
                 buttons.append(nav)
 
         if total_eps > 1:
@@ -792,105 +880,105 @@ def movie_action_keyboard(
             next_lbl = "Следующая ⏩" if lang == "ru" else "Keyingi qism ⏩"
             if idx > 0:
                 prev_ep = episodes[idx - 1]["episode_num"]
-                step_row.append(InlineKeyboardButton(text=prev_lbl, callback_data=f"ep:{code}:{prev_ep}"))
+                step_row.append(ibtn(text=prev_lbl, callback_data=f"ep:{code}:{prev_ep}"))
             if idx < total_eps - 1:
                 next_ep = episodes[idx + 1]["episode_num"]
-                step_row.append(InlineKeyboardButton(text=next_lbl, callback_data=f"ep:{code}:{next_ep}"))
+                step_row.append(ibtn(text=next_lbl, callback_data=f"ep:{code}:{next_ep}", style="primary"))
             if step_row:
                 buttons.append(step_row)
 
-    # 5 talik yulduzcha baholash qatori (👍/👎 o'rniga)
+    # 5 talik yulduzcha baholash qatori
     star_row = []
     for s in range(1, 6):
-        lbl = f"🌟 {s}" if user_rating == s else f"⭐ {s}"
-        star_row.append(InlineKeyboardButton(text=lbl, callback_data=f"rate:{code}:{s}"))
+        is_sel = (user_rating == s)
+        lbl = f"🌟 {s}" if is_sel else f"⭐ {s}"
+        star_row.append(
+            InlineKeyboardButton(
+                text=lbl,
+                callback_data=f"rate:{code}:{s}",
+                style="success" if is_sel else None,
+                icon_custom_emoji_id=config.PREMIUM_EMOJI_MAP["🌟" if is_sel else "⭐"]
+            )
+        )
     buttons.append(star_row)
 
     deep_link_enc = quote(f"https://t.me/{bot_username}?start={code}")
     if lang == "ru":
         fav_text = "✅ В избранном" if is_fav else "⭐ Сохранить"
         share_txt = "↗️ Поделиться"
-        share_cap_enc = quote(f"🎬 {movie['name']} — Смотрите фильм в боте!")
+        share_cap_enc = quote(f"🎬 {movie['name']} — Смотрите в боте!")
         share_url = f"https://t.me/share/url?url={deep_link_enc}&text={share_cap_enc}"
     else:
-        fav_text = "✅ Saqlangan" if is_fav else "⭐ Saqlab qo'yish"
+        fav_text = "✅ Saqlangan" if is_fav else "⭐ Saqlash"
         share_txt = "↗️ Ulashish"
-        share_cap_enc = quote(f"🎬 {movie['name']} — Kinoni bot orqali tomosha qiling!")
+        share_cap_enc = quote(f"🎬 {movie['name']} — Bot orqali tomosha qiling!")
         share_url = f"https://t.me/share/url?url={deep_link_enc}&text={share_cap_enc}"
 
     buttons.append([
-        InlineKeyboardButton(text=fav_text, callback_data=f"fav:{code}"),
-        InlineKeyboardButton(text=share_txt, url=share_url)
+        ibtn(text=fav_text, callback_data=f"fav:{code}", style="success" if is_fav else None),
+        ibtn(text=share_txt, url=share_url, style="primary")
     ])
 
     adm_row1 = []
     if "add_movie" in user_perms or "autopost" in user_perms:
         has_pic = "🖼 Rasm yangilash" if movie.get("photo_id") else "🖼 Rasm qo'shish"
-        adm_row1.append(InlineKeyboardButton(text=has_pic, callback_data=f"editpic:{code}"))
+        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}", style="primary"))
     if "autopost" in user_perms:
-        adm_row1.append(InlineKeyboardButton(text="📢 Kanalga Post", callback_data=f"autopost:{code}"))
+        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}", style="success"))
     if adm_row1:
         buttons.append(adm_row1)
 
     adm_row2 = []
     if "add_movie" in user_perms:
-        adm_row2.append(InlineKeyboardButton(text="➕ Qism ulash", callback_data=f"addep:{code}"))
+        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}", style="primary"))
     if "del_movie" in user_perms:
-        adm_row2.append(InlineKeyboardButton(text="🗑 O'chirish", callback_data=f"delmov:{code}"))
+        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}", style="danger"))
     if adm_row2:
         buttons.append(adm_row2)
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def movies_list_inline(movies: list, title_prefix: str = "🎬", lang: str = "uz", query: str = ""):
-    """
-    Menyuli ro'yxat o'rniga 3-rasmdagidek rasmli avto-qidiruv (switch_inline_query_current_chat) tugmasi.
-    """
     search_lbl = (
-        "🔍 В режиме Инлайн (Список с постерами)"
+        "🔍 Инлайн Каталог (С постерами)"
         if lang == "ru"
-        else "🔍 Inline rejimda (Rasmli Ro'yxat) qidirish"
+        else "🔍 Inline Qidiruv (Rasmli Katalog)"
     )
-    back_txt = "🔙 В главное меню" if lang == "ru" else "🔙 Asosiy menyuga qaytish"
+    back_txt = "🔙 Назад" if lang == "ru" else "🔙 Orqaga"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=search_lbl, switch_inline_query_current_chat=query)],
-            [InlineKeyboardButton(text=back_txt, callback_data="back_main_menu")]
+            [ibtn(text=search_lbl, switch_inline_query_current_chat=query, style="success")],
+            [ibtn(text=back_txt, callback_data="back_main_menu")]
         ]
     )
 
 def movies_catalog_paginated_inline(movies: list = None, page: int = 1, total_pages: int = 1, lang: str = "uz"):
-    """
-    «🔍 Kino qidirish» bosilganda:
-    2-rasmdagi menyuli ro'yxat (menulik kino poisk) butkul olib tashlangan!
-    Faqat 3-rasmdagidek «🔍 Inline rejimda (Rasmli Ro'yxat) qidirish» tugmasi chiqadi.
-    """
     search_lbl = (
-        "🔍 В режиме Инлайн (Список с постерами)"
+        "🔍 Инлайн Каталог (С постерами)"
         if lang == "ru"
-        else "🔍 Inline rejimda (Rasmli Ro'yxat) qidirish"
+        else "🔍 Inline Qidiruv (Rasmli Katalog)"
     )
-    back_txt = "🔙 В главное меню" if lang == "ru" else "🔙 Asosiy menyuga qaytish"
+    back_txt = "🔙 Назад" if lang == "ru" else "🔙 Orqaga"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=search_lbl, switch_inline_query_current_chat="")],
-            [InlineKeyboardButton(text=back_txt, callback_data="back_main_menu")]
+            [ibtn(text=search_lbl, switch_inline_query_current_chat="", style="success")],
+            [ibtn(text=back_txt, callback_data="back_main_menu")]
         ]
     )
 
 def settings_inline_keyboard(protect_content: str, auto_post_channel: str, bot_active: str):
-    prot_txt = "🟢 Yoqilgan (Forward/Saqlash Yopiq)" if protect_content == "1" else "🔴 O'chirilgan (Erkin)"
-    act_txt = "🟢 Faol ishlamoqda" if bot_active == "1" else "🔴 Texnik ishlar rejimi"
+    prot_txt = "🟢 Yoqilgan" if protect_content == "1" else "🔴 O'chirilgan"
+    act_txt = "🟢 Faol" if bot_active == "1" else "🔴 Texnik ishlar"
     ch_txt = auto_post_channel if auto_post_channel else "Belgilanmagan"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"🔒 Forward va Saqlashni cheklash: {prot_txt}", callback_data="toggle_protect")],
-            [InlineKeyboardButton(text=f"🤖 Bot holati: {act_txt}", callback_data="toggle_bot_active")],
-            [InlineKeyboardButton(text=f"📢 Avto-Post kanali: {ch_txt}", callback_data="set_autopost_ch")],
+            [ibtn(text=f"🔒 Kontent himoyasi: {prot_txt}", callback_data="toggle_protect")],
+            [ibtn(text=f"🤖 Bot holati: {act_txt}", callback_data="toggle_bot_active")],
+            [ibtn(text=f"📢 Avto-Post kanali: {ch_txt}", callback_data="set_autopost_ch", style="primary")],
             [
-                InlineKeyboardButton(text="🛑 Botni to'xtatish", callback_data="btn_shutdown_bot"),
-                InlineKeyboardButton(text="🔄 Qayta yuklash", callback_data="btn_restart_bot")
+                ibtn(text="🛑 To'xtatish", callback_data="btn_shutdown_bot", style="danger"),
+                ibtn(text="🔄 Qayta yuklash", callback_data="btn_restart_bot", style="primary")
             ]
         ]
     )
@@ -899,10 +987,10 @@ def order_admin_keyboard(order_id: int, user_id: int, status: str = "pending"):
     rows = []
     if status != "accepted":
         rows.append([
-            InlineKeyboardButton(text="⏳ Qabul qilish (Moderator)", callback_data=f"accept_order:{order_id}:{user_id}")
+            ibtn(text="⏳ Qabul qilish", callback_data=f"accept_order:{order_id}:{user_id}", style="primary")
         ])
     rows.append([
-        InlineKeyboardButton(text="✉️ Javob / Kod yuborish", callback_data=f"ans_order:{order_id}:{user_id}"),
-        InlineKeyboardButton(text="✅ Bajarildi", callback_data=f"done_order:{order_id}")
+        ibtn(text="✉️ Javob yuborish", callback_data=f"ans_order:{order_id}:{user_id}", style="primary"),
+        ibtn(text="✅ Bajarildi", callback_data=f"done_order:{order_id}", style="success")
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)

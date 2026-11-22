@@ -195,39 +195,23 @@ async def send_earn_money_screen(target, user_id: int, bot: Bot):
 
     if lang == "ru":
         text = (
-            f"🎁 <b>ЦЕНТР ЕЖЕДНЕВНЫХ БОНУСОВ И ЗАРАБОТКА</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{config.pe('🎁')} <b>БОНУСЫ И РЕФЕРАЛЫ</b>\n\n"
             f"<blockquote>"
-            f"💰 <b>Ваш текущий баланс:</b> <code>{bal:,}</code> сум\n"
-            f"📈 <b>Всего заработано:</b> <code>{earned:,}</code> сум\n"
-            f"🔥 <b>Ежедневный стрик:</b> {streak} / 7 дней\n"
-            f"👥 <b>Приглашено друзей:</b> {refs} чел."
-            f"</blockquote>\n\n"
-            f"💡 <b>Как бесплатно заработать деньги и 💎 VIP?</b>\n"
-            f"<blockquote>"
-            f"1️⃣ <b>Ежедневный бонус:</b> Базовый <b>+{int(daily_amt):,} сум</b> (+15% за каждый день подряд, а на 7-й день — <b>2x Бонус + 1 день Бесплатного VIP</b>!)\n"
-            f"2️⃣ <b>Приглашайте друзей:</b> За каждого друга на баланс сразу начисляется <b>+{int(ref_amt):,} сум</b>!\n"
-            f"3️⃣ Накопив <b>{int(p7):,} сум</b>, активируйте <b>💎 Premium (VIP)</b> прямо с баланса!"
-            f"</blockquote>\n\n"
-            f"🔗 <b>Ваша реферальная ссылка:</b>\n<code>{ref_link}</code>"
+            f"💰 <b>Баланс:</b> <code>{bal:,}</code> сум • 📈 <b>Всего:</b> <code>{earned:,}</code> сум\n"
+            f"🔥 <b>Стрик:</b> {streak}/7 дн. • 👥 <b>Друзья:</b> {refs} чел.\n"
+            f"🎁 <b>Бонус:</b> +{int(daily_amt):,} сум/день • 📲 <b>За друга:</b> +{int(ref_amt):,} сум"
+            f"</blockquote>\n"
+            f"🔗 <code>{ref_link}</code>"
         )
     else:
         text = (
-            f"🎁 <b>KUNLIK BONUS VA PUL ISHLASH MARKAZI</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{config.pe('🎁')} <b>BONUS VA REFERAL MARKAZI</b>\n\n"
             f"<blockquote>"
-            f"💰 <b>Joriy balansingiz:</b> <code>{bal:,}</code> so'm\n"
-            f"📈 <b>Jami ishlangan pul:</b> <code>{earned:,}</code> so'm\n"
-            f"🔥 <b>Kunlik Streak:</b> {streak} / 7 kun\n"
-            f"👥 <b>Taklif etilgan do'stlar:</b> {refs} ta"
-            f"</blockquote>\n\n"
-            f"💡 <b>Qanday qilib bepul pul va 💎 VIP olish mumkin?</b>\n"
-            f"<blockquote>"
-            f"1️⃣ <b>Kunlik bonus oling:</b> Boshlang'ich <b>+{int(daily_amt):,} so'm</b> (har ketma-ket kun uchun +15%, 7-kunda esa <b>2x Bonus + 1 kun Bepul VIP</b>!)\n"
-            f"2️⃣ <b>Do'stlarni taklif qiling:</b> Har bir taklif uchun balansingizga darhol <b>+{int(ref_amt):,} so'm</b> tushadi!\n"
-            f"3️⃣ Balansingiz <b>{int(p7):,} so'm</b> ga yetganda 1 klikda <b>💎 Premium (VIP)</b> xarid qiling!"
-            f"</blockquote>\n\n"
-            f"🔗 <b>Shaxsiy taklif havolangiz:</b>\n<code>{ref_link}</code>"
+            f"💰 <b>Balans:</b> <code>{bal:,}</code> so'm • 📈 <b>Jami:</b> <code>{earned:,}</code> so'm\n"
+            f"🔥 <b>Streak:</b> {streak}/7 kun • 👥 <b>Do'stlar:</b> {refs} ta\n"
+            f"🎁 <b>Kunlik:</b> +{int(daily_amt):,} so'm • 📲 <b>Referal:</b> +{int(ref_amt):,} so'm"
+            f"</blockquote>\n"
+            f"🔗 <code>{ref_link}</code>"
         )
 
     markup = kb.earn_money_inline(ref_link, daily_amt, ref_amt, lang=lang)
@@ -351,64 +335,24 @@ async def send_vip_shop_screen(target, user_id: int):
     if lang == "ru":
         if is_vip:
             until = (u.get("premium_until") or "Бессрочно")[:16].replace("T", " ")
-            status_block = (
-                f"<blockquote>"
-                f"💎 <b>Ваш статус: PREMIUM VIP АКТИВЕН</b>\n"
-                f"📅 Срок действия: <code>{until}</code>\n"
-                f"🏷 Ваш Тег в группе: <b>[{cur_tag}]</b>\n"
-                f"🎬 Заказов сегодня: <b>{used_today} / {vip_lim} шт.</b>"
-                f"</blockquote>"
-            )
+            status_block = f"💎 <b>VIP Активен</b> (до <code>{until}</code>) • Тег: <b>[{cur_tag}]</b>"
         else:
-            status_block = (
-                f"<blockquote>"
-                f"👤 Текущий статус: <b>Обычный пользователь</b>\n"
-                f"💰 Ваш баланс: <b>{bal:,} сум</b>"
-                f"</blockquote>"
-            )
+            status_block = f"👤 Статус: <b>Standard</b> • 💰 Баланс: <b>{bal:,} сум</b>"
         text = (
-            f"💎 <b>МАГАЗИН PREMIUM И ЭКОСИСТЕМА</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{status_block}\n\n"
-            f"🌟 <b>Преимущества Premium:</b>\n"
-            f"<blockquote>"
-            f"1️⃣ <b>Официальный тег <code>[PREMIUM]</code> рядом с именем в Movie Land Group!</b>\n"
-            f"2️⃣ Доступ к выбору уникального тега (<code>PREMIUM</code>, <code>VIP KING</code>)!\n"
-            f"3️⃣ Заказ до <b>{vip_lim} фильмов в день</b> вне очереди!\n"
-            f"4️⃣ Доступ в раздел <b>💸 Premium</b> для отзывов!"
-            f"</blockquote>\n\n"
-            f"👇 <i>Купите в 1 клик с баланса или оплатите картой:</i>"
+            f"{config.pe('💎')} <b>PREMIUM VIP МАГАЗИН</b>\n\n"
+            f"<blockquote>{status_block}\n"
+            f"🏷 Тег <code>[{cur_tag}]</code> в группе • 🎬 До {vip_lim} заказов/день</blockquote>"
         )
     else:
         if is_vip:
             until = (u.get("premium_until") or "Cheksiz")[:16].replace("T", " ")
-            status_block = (
-                f"<blockquote>"
-                f"💎 <b>Sizning maqomingiz: PREMIUM VIP FAOL</b>\n"
-                f"📅 Amal qilish muddati: <code>{until}</code> gacha\n"
-                f"🏷 Guruhdagi Tegingiz: <b>[{cur_tag}]</b>\n"
-                f"🎬 Bugungi kino buyurtma: <b>{used_today} / {vip_lim} ta</b>"
-                f"</blockquote>"
-            )
+            status_block = f"💎 <b>VIP Faol</b> (<code>{until}</code> gacha) • Teg: <b>[{cur_tag}]</b>"
         else:
-            status_block = (
-                f"<blockquote>"
-                f"👤 Joriy maqomingiz: <b>Oddiy foydalanuvchi</b>\n"
-                f"💰 Balansingiz: <b>{bal:,} so'm</b>"
-                f"</blockquote>"
-            )
+            status_block = f"👤 Maqom: <b>Standard</b> • 💰 Balans: <b>{bal:,} so'm</b>"
         text = (
-            f"💎 <b>MOVIE LAND PREMIUM DO'KONI</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{status_block}\n\n"
-            f"🌟 <b>Premium imkoniyatlari:</b>\n"
-            f"<blockquote>"
-            f"1️⃣ <b>Mavzuli Guruhda ismingiz yonida rasmiy <code>[PREMIUM]</code> Teg!</b>\n"
-            f"2️⃣ O'zingiz xohlagan maxsus Teg (<code>PREMIUM</code>, <code>VIP KING</code>) tanlash!\n"
-            f"3️⃣ Kuniga 1 ta o'rniga <b>{vip_lim} tagacha kino buyurtma</b> qilish!\n"
-            f"4️⃣ Guruhning <b>💸 Premium</b> bo'limiga Otziv yozish huquqi!"
-            f"</blockquote>\n\n"
-            f"👇 <i>Balansingizdan 1 klikda xarid qiling yoki Karta orqali to'lang:</i>"
+            f"{config.pe('💎')} <b>PREMIUM VIP DO'KONI</b>\n\n"
+            f"<blockquote>{status_block}\n"
+            f"🏷 Guruhda <code>[{cur_tag}]</code> tegi • 🎬 Kuniga {vip_lim} ta buyurtma</blockquote>"
         )
 
     markup = kb.user_vip_shop_inline(p7, p30, p90, is_vip=is_vip, cur_tag=cur_tag, lang=lang)

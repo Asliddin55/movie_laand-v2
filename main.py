@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import json
 import logging
 import os
 import shutil
@@ -166,12 +167,39 @@ fallback_router = Router()
 BOT_USERNAME = ""
 
 
-# ===================== 1. GLOBAL PROTECT CONTENT MIDDLEWARE (100% FORWARD BLOKLASH) =====================
+def _strip_custom_emoji_from_markup(markup, convert_webapp: bool = False):
+    """Agar Telegram serveri custom emoji ID yoki guruhda web_app ni qabul qilmasa, xavfsiz moslaydi."""
+    if not markup:
+        return markup
+    try:
+        if hasattr(markup, "inline_keyboard") and markup.inline_keyboard:
+            new_rows = []
+            for row in markup.inline_keyboard:
+                new_r = []
+                for b in row:
+                    upd = {"icon_custom_emoji_id": None}
+                    if convert_webapp and getattr(b, "web_app", None):
+                        upd["url"] = b.web_app.url
+                        upd["web_app"] = None
+                    new_r.append(b.model_copy(update=upd))
+                new_rows.append(new_r)
+            return markup.model_copy(update={"inline_keyboard": new_rows})
+        if hasattr(markup, "keyboard") and markup.keyboard:
+            new_rows = []
+            for row in markup.keyboard:
+                new_rows.append([b.model_copy(update={"icon_custom_emoji_id": None}) if hasattr(b, "model_copy") else b for b in row])
+            return markup.model_copy(update={"keyboard": new_rows})
+    except Exception:
+        pass
+    return markup
+
+
+# ===================== 1. GLOBAL PROTECT CONTENT & SAFE BUTTON MIDDLEWARE =====================
 @bot.session.middleware
 async def global_protect_content_middleware(make_request, bot_instance, method):
     """
-    Agar protect_content == '1' bo'lsa, botdan foydalanuvchilar lichkasiga (chat_id > 0)
-    yuborilayotgan BARCHA xabarlar, menyular, kinolar va seriallarda Forward/Save ni 100% bloklaydi!
+    1) Agar protect_content == '1' bo'lsa, foydalanuvchilar lichkasida Forward/Save ni 100% bloklaydi.
+    2) Agar custom emoji yoki style bo'yicha Telegram xato qaytarsa, avtomatik tozalab qayta yuboradi.
     """
     if hasattr(method, "protect_content") and hasattr(method, "chat_id"):
         chat_id = getattr(method, "chat_id", None)
@@ -179,7 +207,18 @@ async def global_protect_content_middleware(make_request, bot_instance, method):
             prot = await db.get_setting("protect_content", "1")
             if str(prot) == "1":
                 method = method.model_copy(update={"protect_content": True})
-    return await make_request(bot_instance, method)
+    try:
+        return await make_request(bot_instance, method)
+    except TelegramBadRequest as e:
+        err_str = str(e)
+        if any(k in err_str for k in ("BUTTON_CUSTOM_EMOJI", "CUSTOM_EMOJI", "BUTTON_TYPE_INVALID")) and hasattr(method, "reply_markup"):
+            clean_kb = _strip_custom_emoji_from_markup(
+                getattr(method, "reply_markup", None),
+                convert_webapp=("BUTTON_TYPE_INVALID" in err_str)
+            )
+            method = method.model_copy(update={"reply_markup": clean_kb})
+            return await make_request(bot_instance, method)
+        raise
 
 
 # ===================== FSM HOLATLARI =====================
@@ -440,9 +479,67 @@ class MandatorySubMiddleware(BaseMiddleware):
 dp.message.middleware(MandatorySubMiddleware())
 dp.callback_query.middleware(MandatorySubMiddleware())
 
+_PHOTO_URL_CACHE = BoundedDict(2000)
+
+
+async def upload_telegram_photo_to_public_url(file_id: str) -> str:
+    """
+    Telegram photo file_id ni doimiy HTTPS rasm URL ga (Catbox CDN -> Telegram CDN zaxirasi) aylantiradi.
+    Shunda admin o'zgartirgan rasm ham @movieee_land kanal postida, ham Poster Cardda,
+    ham @movieeland_bot Inline Qidiruvida (thumbnail_url), ham WebApp da 100% ko'rinadi!
+    """
+    if not file_id:
+        return ""
+    if file_id.startswith(("http://", "https://")):
+        return file_id
+    if file_id in _PHOTO_URL_CACHE:
+        return _PHOTO_URL_CACHE[file_id]
+
+    try:
+        import io
+        import aiohttp
+        tg_file = await bot.get_file(file_id)
+        tg_cdn_url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{tg_file.file_path}"
+        buf = io.BytesIO()
+        await bot.download_file(tg_file.file_path, destination=buf)
+        img_bytes = buf.getvalue()
+        if img_bytes:
+            async with aiohttp.ClientSession() as sess:
+                try:
+                    form = aiohttp.FormData()
+                    form.add_field("reqtype", "fileupload")
+                    form.add_field("fileToUpload", img_bytes, filename="poster.jpg", content_type="image/jpeg")
+                    async with sess.post("https://catbox.moe/user/api.php", data=form, timeout=12) as resp:
+                        if resp.status == 200:
+                            url_txt = (await resp.text()).strip()
+                            if url_txt.startswith("https://"):
+                                _PHOTO_URL_CACHE[file_id] = url_txt
+                                return url_txt
+                except Exception:
+                    pass
+        _PHOTO_URL_CACHE[file_id] = tg_cdn_url
+        return tg_cdn_url
+    except Exception as e:
+        logging.warning(f"Telegram rasmni public URL ga o'girishda xato: {e}")
+        return ""
+
+
+async def ensure_public_photo_url(code: str, raw_photo: str) -> str:
+    """Agar kinoning photo_id si Telegram file_id bo'lsa, uni doimiy HTTPS URL ga o'girib bazada yangilaydi."""
+    raw_photo = (raw_photo or "").strip()
+    if not raw_photo:
+        return ""
+    if raw_photo.startswith(("http://", "https://")):
+        return raw_photo
+    pub_url = await upload_telegram_photo_to_public_url(raw_photo)
+    if pub_url and pub_url.startswith("http"):
+        await db.update_movie_photo(str(code), pub_url)
+        return pub_url
+    return ""
+
+
 def format_movie_caption(movie: dict, bot_username: str, current_ep: int = None, protect: bool = True, lang: str = "uz") -> str:
     rating = movie.get("imdb", "8.4")
-    votes = movie.get("likes", 0)
     views = movie.get("views", 0)
 
     m_name = html.escape(str(movie.get("name") or ""))
@@ -452,57 +549,36 @@ def format_movie_caption(movie: dict, bot_username: str, current_ep: int = None,
     m_quality = html.escape(str(movie.get("quality") or "1080p Full HD"))
     m_lang = html.escape(str(movie.get("language") or "O‘zbek tilida"))
     m_code = html.escape(str(movie.get("code") or ""))
-    raw_cap = str(movie.get("caption") or "").strip()
-    m_caption = html.escape(raw_cap) if raw_cap else ""
 
     if lang == "ru":
-        caption_extra = f"\n<blockquote>📖 <b>Описание:</b> <i>{m_caption}</i></blockquote>\n" if m_caption else ""
-        ep_txt = f" <i>({current_ep}-серия)</i>" if current_ep else ""
-        prot_badge = "🔒 <i>Контент защищен авторским правом (Пересылка закрыта)</i>\n" if protect else ""
+        ep_txt = f" • <b>{current_ep}-серия</b>" if current_ep else ""
         return (
-            f"🎬 <b>«{m_name}»</b>{ep_txt}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{config.pe('🎬')} <b>«{m_name}»</b>{ep_txt}\n\n"
             f"<blockquote>"
-            f"📅 <b>Год выпуска:</b> {m_year}\n"
-            f"🌏 <b>Страна:</b> {m_country}\n"
-            f"🎞 <b>Жанр:</b> {m_genre}\n"
-            f"📀 <b>Качество:</b> {m_quality}\n"
-            f"🇺🇿 <b>Озвучка:</b> {m_lang}\n"
-            f"⭐ <b>Рейтинг:</b> {rating} / 10 ({votes} оценок)\n"
-            f"👁 <b>Просмотров:</b> {views:,} • 🔢 <b>Код:</b> <code>{m_code}</code>"
-            f"</blockquote>"
-            f"{caption_extra}"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{prot_badge}"
-            f"📢 <b>Канал:</b> @movieee_land • 🤖 @{bot_username}"
+            f"📅 <b>Год:</b> {m_year} • 🌏 <b>Страна:</b> {m_country}\n"
+            f"🎭 <b>Жанр:</b> {m_genre}\n"
+            f"📀 <b>Качество:</b> {m_quality} • 🇺🇿 {m_lang}\n"
+            f"⭐ <b>IMDb:</b> {rating}/10 • 👁 {views:,} • 🔢 <b>Код:</b> <code>{m_code}</code>"
+            f"</blockquote>\n"
+            f"📢 @movieee_land • 🤖 @{bot_username}"
         )
 
-    caption_extra = f"\n<blockquote>📖 <b>Tavsif:</b> <i>{m_caption}</i></blockquote>\n" if m_caption else ""
-    ep_txt = f" <i>({current_ep}-qism)</i>" if current_ep else ""
-    prot_badge = "🔒 <i>Kontent mualliflik huquqi bilan himoyalangan (Forward yopiq)</i>\n" if protect else ""
+    ep_txt = f" • <b>{current_ep}-qism</b>" if current_ep else ""
     return (
-        f"🎬 <b>«{m_name}»</b>{ep_txt}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{config.pe('🎬')} <b>«{m_name}»</b>{ep_txt}\n\n"
         f"<blockquote>"
-        f"📅 <b>Chiqarilgan yili:</b> {m_year}\n"
-        f"🌏 <b>Davlati:</b> {m_country}\n"
-        f"🎞 <b>Janri:</b> {m_genre}\n"
-        f"📀 <b>Sifati:</b> {m_quality}\n"
-        f"🇺🇿 <b>Tili / Ovoz:</b> {m_lang}\n"
-        f"⭐ <b>Reytingi:</b> {rating} / 10 ({votes} baho)\n"
-        f"👁 <b>Ko'rishlar:</b> {views:,} ta • 🔢 <b>Kodi:</b> <code>{m_code}</code>"
-        f"</blockquote>"
-        f"{caption_extra}"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{prot_badge}"
-        f"📢 <b>Kanal:</b> @movieee_land • 🤖 @{bot_username}"
+        f"📅 <b>Yili:</b> {m_year} • 🌏 <b>Davlat:</b> {m_country}\n"
+        f"🎭 <b>Janr:</b> {m_genre}\n"
+        f"📀 <b>Sifat:</b> {m_quality} • 🇺🇿 {m_lang}\n"
+        f"⭐ <b>IMDb:</b> {rating}/10 • 👁 {views:,} • 🔢 <b>Kod:</b> <code>{m_code}</code>"
+        f"</blockquote>\n"
+        f"📢 @movieee_land • 🤖 @{bot_username}"
     )
+
 
 async def publish_movie_to_channel(movie: dict) -> bool:
     """
-    Kinoni @movieee_land (yoki belgilangan Avto-Post kanaliga) chiqarish:
-    1) Agar Admin kinoga rasm (photo_id) biriktirgan bo'lsa -> aynan o'sha rasm bilan chiqaradi!
-    2) Aks holda (TMDB avto-rasm o'chirilgan bo'lsa) -> xato rasm qo'shmasdan, toza post chiqaradi!
+    Kinoni @movieee_land kanaliga ixcham, premium ko'rinishda va rangli tugma bilan chiqaradi.
     """
     b_uname = await get_bot_username()
     raw_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
@@ -511,25 +587,29 @@ async def publish_movie_to_channel(movie: dict) -> bool:
         return False
 
     code = movie["code"]
+    m_name = html.escape(str(movie.get("name") or ""))
     serial_txt = " (Serial)" if movie.get("is_serial") else ""
-    desc_line = f"\n📝 <i>{movie['caption']}</i>\n" if movie.get("caption") else ""
 
     post_text = (
-        f"🎬 <b>Nomi:</b> {movie['name']}{serial_txt}\n\n"
-        f"🌏 <b>Davlati:</b> {movie.get('country', 'AQSH')}\n"
-        f"📅 <b>Yili:</b> {movie.get('year', '2024')}\n"
-        f"📀 <b>Sifati:</b> {movie.get('quality', '1080p Full HD')}\n"
-        f"🎞 <b>Janri:</b> {movie.get('genre', '🔥 Jangari')}\n"
-        f"🇺🇿 <b>Tili:</b> {movie.get('language', 'O‘zbek tilida')}\n"
-        f"🔢 <b>Kino kodi:</b> <code>{code}</code>\n"
-        f"{desc_line}\n"
-        f"📌 <b>Kanal:</b> @movieee_land"
+        f"{config.pe('🎬')} <b>«{m_name}»{serial_txt}</b>\n\n"
+        f"<blockquote>"
+        f"📅 <b>Yili:</b> {html.escape(str(movie.get('year', '2024')))} • 🌏 <b>Davlat:</b> {html.escape(str(movie.get('country', 'AQSH')))}\n"
+        f"🎭 <b>Janr:</b> {html.escape(str(movie.get('genre', '🔥 Jangari')))}\n"
+        f"📀 <b>Sifat:</b> {html.escape(str(movie.get('quality', '1080p Full HD')))} • 🇺🇿 {html.escape(str(movie.get('language', 'O‘zbek tilida')))}\n"
+        f"🔢 <b>Kino kodi:</b> <code>{code}</code>"
+        f"</blockquote>\n"
+        f"📢 @movieee_land • 🤖 @{b_uname}"
     )
     btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"▶️ Kinoni tomosha qilish (Kod: {code})", url=f"https://t.me/{b_uname}?start={code}")]
+        [kb.ibtn(text=f"▶️ Tomosha qilish (Kod: {code})", url=f"https://t.me/{b_uname}?start={code}", style="success")]
     ])
 
-    # 1. Agar kinoda rasm (photo_id) bo'lmasa, TheMovieDB (1-rasm) dan avtomatik HD poster topib bazaga saqlaymiz
+    raw_photo = (movie.get("photo_id") or "").strip()
+    if raw_photo and not raw_photo.startswith(("http://", "https://")):
+        pub_url = await ensure_public_photo_url(code, raw_photo)
+        if pub_url:
+            movie["photo_id"] = pub_url
+
     if not movie.get("photo_id"):
         poster_url = await ai_service.find_movie_poster_tmdb(
             name=movie["name"],
@@ -541,7 +621,6 @@ async def publish_movie_to_channel(movie: dict) -> bool:
             await db.update_movie_photo(code, poster_url)
             movie["photo_id"] = poster_url
 
-    # 2. Rasmli post chiqarish (Admin rasmi yoki TMDB rasmiy HD posteri bilan)
     if movie.get("photo_id"):
         try:
             await bot.send_photo(
@@ -553,26 +632,7 @@ async def publish_movie_to_channel(movie: dict) -> bool:
             )
             return True
         except Exception as e:
-            logging.warning(f"Rasm bilan post yuborishda xato ({movie.get('photo_id')}), TMDB orqali yangilanadi: {e}")
-            fresh_poster = await ai_service.find_movie_poster_tmdb(
-                name=movie["name"],
-                year=str(movie.get("year", "")),
-                is_serial=bool(movie.get("is_serial")),
-                force=True
-            )
-            if fresh_poster and fresh_poster != movie.get("photo_id"):
-                await db.update_movie_photo(code, fresh_poster)
-                try:
-                    await bot.send_photo(
-                        chat_id=post_ch,
-                        photo=fresh_poster,
-                        caption=post_text,
-                        reply_markup=btn,
-                        parse_mode="HTML"
-                    )
-                    return True
-                except Exception as e2:
-                    logging.warning(f"Yangilangan TMDB rasm bilan post yuborishda xato: {e2}")
+            logging.warning(f"Rasm bilan post yuborishda xato ({movie.get('photo_id')}): {e}")
 
     try:
         await bot.send_message(chat_id=post_ch, text=post_text, reply_markup=btn, parse_mode="HTML")
@@ -3142,12 +3202,16 @@ async def cmd_start(message: Message, state: FSMContext):
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     param = args[0] if args else None
 
-    ref_by, movie_code = None, None
+    ref_by, movie_code, start_ep = None, None, None
     if param:
         if param.startswith("ref_"):
             ref_str = param.replace("ref_", "")
             if ref_str.isdigit():
                 ref_by = int(ref_str)
+        elif "_" in param and all(p.isdigit() for p in param.lstrip("#").split("_", 1)):
+            c_part, ep_part = param.lstrip("#").split("_", 1)
+            movie_code = c_part
+            start_ep = int(ep_part)
         else:
             movie_code = param.lstrip("#")
 
@@ -3212,8 +3276,9 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # 3-QADAM: Obuna tasdiqlangan bo'lsa, kino yoki asosiy menyuni ochamiz
     if movie_code:
-        await message.answer(t("loading_movie", lang), reply_markup=kb.user_main_keyboard(role, lang=lang), parse_mode="HTML")
-        await send_movie_card(message, user_id, movie_code)
+        await send_movie_card(message, user_id, movie_code, ep_num=start_ep)
+        if start_ep:
+            await send_movie_video(message, user_id, movie_code, ep_num=start_ep)
         return
 
     is_vip = await db.is_user_premium(user_id)
@@ -3223,7 +3288,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
     welcome = t("welcome", lang, name=full_name, vip_badge=vip_badge)
     await message.answer(
-        "🏠 <b>Asosiy panel:</b>" if lang != "ru" else "🏠 <b>Главная панель:</b>",
+        f"{config.pe('⚡')} <b>Movie Land Ultra</b>",
         reply_markup=kb.user_main_keyboard(role, lang=lang),
         parse_mode="HTML"
     )
@@ -3381,32 +3446,15 @@ async def switch_to_user_menu(message: Message, state: FSMContext):
 
 # ===================== POLZOVATEL BO'LIMLARI (INLINE DASHBOARD + REPLY, UZ / RU) =====================
 async def send_movies_search_catalog(target, user_id: int, state: FSMContext, page: int = 1):
-    """
-    «🔍 Kino qidirish» bosilganda:
-    2-chi rasmdagi menyuli kino ro'yxati (menulik kino poisk) BUTKUL olib tashlangan!
-    Faqat 3-chi rasmdagidek «🔍 Inline rejimda (Rasmli Ro'yxat) qidirish» tugmasi chiqadi
-    va bosilganda (yoki @movieeland_bot kiritilganda) TMDB posterlari va ma'lumotlari bilan avto-qidiruv ochiladi!
-    """
+    """Qidiruv faqat Inline Katalog (switch_inline_query_current_chat) orqali ishlaydi."""
     lang = await db.get_user_lang(user_id)
     await state.clear()
     _, total = await db.get_movies_paginated(offset=0, limit=1)
 
     if lang == "ru":
-        header = (
-            f"🔍 <b>ПОИСК ФИЛЬМОВ (Всего: {total} шт.)</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<blockquote>🔢 Напишите <b>код фильма</b> (например: <code>1</code>)\n"
-            f"🔤 Или <b>название фильма / ключевое слово</b></blockquote>\n\n"
-            f"👇 <i>Или откройте галерею постеров кнопкой ниже:</i>"
-        )
+        header = f"{config.pe('🔍')} <b>Инлайн-каталог ({total} шт.):</b>"
     else:
-        header = (
-            f"🔍 <b>KINO QIDIRISH (Jami: {total} ta)</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<blockquote>🔢 Kino <b>kodini</b> yozing (masalan: <code>1</code>)\n"
-            f"🔤 Yoki kino <b>nomi / kalit so'zini</b> yozing</blockquote>\n\n"
-            f"👇 <i>Yoki quyidagi tugma orqali rasmli ro'yxatdan qidiring:</i>"
-        )
+        header = f"{config.pe('🔍')} <b>Inline Katalog ({total} ta):</b>"
 
     markup = kb.movies_catalog_paginated_inline(lang=lang)
     if isinstance(target, CallbackQuery):
@@ -3871,99 +3919,61 @@ async def user_cabinet(message: Message):
     is_vip = await db.is_user_premium(user_id)
     favs = await db.get_user_favorites(user_id)
     hist = await db.get_user_history(user_id, 100)
-    top_refs = await db.get_top_referrers(5)
 
     ref_link = f"https://t.me/{b_uname}?start=ref_{user_id}"
     ref_count = user.get("ref_count", 0)
     bal = user.get("balance", 0)
-    earned = user.get("total_earned", 0)
     streak = user.get("daily_streak", 0)
     vip_tag = user.get("vip_tag", "PREMIUM")
     until = (user.get("premium_until") or "")[:10]
 
     if lang == "ru":
-        top_txt = ""
-        if top_refs:
-            top_txt = "\n<blockquote>🏆 <b>Топ-5 лидеров по приглашениям:</b>\n"
-            for i, r in enumerate(top_refs, 1):
-                t_b = f" [{r.get('vip_tag', 'PREMIUM')}]" if r.get("is_premium") else ""
-                top_txt += f"{i}. {r['full_name']}{t_b} — <b>{r['ref_count']} чел.</b> ({r.get('balance', 0):,} сум)\n"
-            top_txt += "</blockquote>\n"
-
-        vip_line = f"💎 VIP Активен [{vip_tag}] (до {until})" if is_vip else "👤 Обычный пользователь"
+        vip_line = f"💎 VIP [{vip_tag}] (до {until})" if is_vip else "Standard"
         text = (
-            f"👤 <b>ВАШ ЛИЧНЫЙ ПРОФИЛЬ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🆔 <b>Chat ID:</b> <code>{user_id}</code>\n"
-            f"👤 <b>Имя:</b> {message.from_user.full_name}\n"
-            f"🌐 <b>Язык интерфейса:</b> 🇷🇺 Русский\n"
-            f"🎖 <b>Статус:</b> {vip_line}\n\n"
+            f"{config.pe('👤')} <b>ПРОФИЛЬ • {html.escape(message.from_user.full_name)}</b>\n\n"
             f"<blockquote>"
-            f"💰 <b>Баланс:</b> <code>{bal:,}</code> сум (Всего: {earned:,} сум)\n"
-            f"🔥 <b>Серия посещений:</b> {streak} / 7 дней\n"
-            f"⭐ <b>В избранном:</b> {len(favs)} шт. • 👁 <b>Просмотрено:</b> {len(hist)} шт.\n"
-            f"👥 <b>Приглашено друзей:</b> {ref_count} чел."
+            f"🆔 <b>ID:</b> <code>{user_id}</code> • 🎖 <b>Статус:</b> {vip_line}\n"
+            f"💰 <b>Баланс:</b> <code>{bal:,}</code> сум • 🔥 <b>Стрик:</b> {streak}/7 дн.\n"
+            f"⭐ <b>Избранное:</b> {len(favs)} • 👁 <b>История:</b> {len(hist)} • 👥 <b>Друзья:</b> {ref_count}"
             f"</blockquote>\n"
-            f"🔗 <b>Ваша реферальная ссылка:</b>\n<code>{ref_link}</code>\n"
-            f"{top_txt}"
+            f"🔗 <code>{ref_link}</code>"
         )
         share_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📲 Поделиться с друзьями",
-                url=f"https://t.me/share/url?url={ref_link}&text=🎬 Лучший бот фильмов и сериалов! Присоединяйтесь!"
+            [
+                kb.ibtn(text="🎁 Бонус", callback_data="claim_daily", style="success"),
+                kb.ibtn(text="💎 VIP Магазин", callback_data="open_vip_shop", style="primary")
+            ],
+            [kb.ibtn(
+                text="📲 Пригласить друзей",
+                url=f"https://t.me/share/url?url={ref_link}&text=🎬 Лучший бот фильмов и сериалов!",
+                style="primary"
             )],
-            [
-                InlineKeyboardButton(text="🎁 Ежедневный бонус", callback_data="claim_daily"),
-                InlineKeyboardButton(text="💎 Магазин VIP", callback_data="open_vip_shop")
-            ],
-            [
-                InlineKeyboardButton(text="🇺🇿 O'zbek tiliga o'tish", callback_data="set_lang:uz")
-            ],
-            [
-                InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_main_menu")
-            ]
+            [kb.ibtn(text="🇺🇿 O'zbek tiliga o'tish", callback_data="set_lang:uz")],
+            [kb.ibtn(text="🔙 Назад", callback_data="back_main_menu")]
         ])
     else:
-        top_txt = ""
-        if top_refs:
-            top_txt = "\n<blockquote>🏆 <b>Top-5 faol taklifchilar:</b>\n"
-            for i, r in enumerate(top_refs, 1):
-                t_b = f" [{r.get('vip_tag', 'PREMIUM')}]" if r.get("is_premium") else ""
-                top_txt += f"{i}. {r['full_name']}{t_b} — <b>{r['ref_count']} ta</b> ({r.get('balance', 0):,} so'm)\n"
-            top_txt += "</blockquote>\n"
-
-        vip_line = f"💎 VIP Faol [{vip_tag}] ({until} gacha)" if is_vip else "👤 Oddiy foydalanuvchi"
+        vip_line = f"💎 VIP [{vip_tag}] ({until} gacha)" if is_vip else "Standard"
         text = (
-            f"👤 <b>SHAXSIY PROFILINGIZ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🆔 <b>Chat ID:</b> <code>{user_id}</code>\n"
-            f"👤 <b>Ismingiz:</b> {message.from_user.full_name}\n"
-            f"🌐 <b>Tanlangan til:</b> 🇺🇿 O'zbek tili\n"
-            f"🎖 <b>Maqomingiz:</b> {vip_line}\n\n"
+            f"{config.pe('👤')} <b>PROFIL • {html.escape(message.from_user.full_name)}</b>\n\n"
             f"<blockquote>"
-            f"💰 <b>Joriy balans:</b> <code>{bal:,}</code> so'm (Jami: {earned:,} so'm)\n"
-            f"🔥 <b>Kunlik Streak:</b> {streak} / 7 kun\n"
-            f"⭐ <b>Saqlangan kinolar:</b> {len(favs)} ta • 👁 <b>Ko'rilgan:</b> {len(hist)} ta\n"
-            f"👥 <b>Taklif etilgan do'stlar:</b> {ref_count} nafar"
+            f"🆔 <b>ID:</b> <code>{user_id}</code> • 🎖 <b>Maqom:</b> {vip_line}\n"
+            f"💰 <b>Balans:</b> <code>{bal:,}</code> so'm • 🔥 <b>Streak:</b> {streak}/7 kun\n"
+            f"⭐ <b>Sevimlilar:</b> {len(favs)} • 👁 <b>Ko'rilgan:</b> {len(hist)} • 👥 <b>Do'stlar:</b> {ref_count}"
             f"</blockquote>\n"
-            f"🔗 <b>Shaxsiy taklif havolangiz:</b>\n<code>{ref_link}</code>\n"
-            f"{top_txt}"
+            f"🔗 <code>{ref_link}</code>"
         )
         share_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
+            [
+                kb.ibtn(text="🎁 Kunlik Bonus", callback_data="claim_daily", style="success"),
+                kb.ibtn(text="💎 VIP Do'kon", callback_data="open_vip_shop", style="primary")
+            ],
+            [kb.ibtn(
                 text="📲 Do'stlarga ulashish",
-                url=f"https://t.me/share/url?url={ref_link}&text=🎬 Eng zo'r kinolar va seriallar botiga qo'shiling!"
+                url=f"https://t.me/share/url?url={ref_link}&text=🎬 Eng zo'r kinolar va seriallar botiga qo'shiling!",
+                style="primary"
             )],
-            [
-                InlineKeyboardButton(text="🎁 Kunlik Bonus olish", callback_data="claim_daily"),
-                InlineKeyboardButton(text="💎 VIP Do'kon", callback_data="open_vip_shop")
-            ],
-            [
-                InlineKeyboardButton(text="🇷🇺 Перейти на Русский язык", callback_data="set_lang:ru")
-            ],
-            [
-                InlineKeyboardButton(text="🔙 Asosiy menyuga qaytish", callback_data="back_main_menu")
-            ]
+            [kb.ibtn(text="🇷🇺 Русский язык", callback_data="set_lang:ru")],
+            [kb.ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
         ])
     await message.answer(text, reply_markup=share_btn, parse_mode="HTML")
 
@@ -4378,6 +4388,12 @@ async def inline_movie_search(inline_query: InlineQuery):
         badge = "📺" if m.get("is_serial") else "🎬"
 
         raw_photo = (m.get("photo_id") or "").strip()
+        if raw_photo and not raw_photo.startswith(("http://", "https://")):
+            pub_url = await ensure_public_photo_url(code, raw_photo)
+            if pub_url:
+                raw_photo = pub_url
+                m["photo_id"] = pub_url
+
         if raw_photo.startswith("https://image.tmdb.org/t/p/w780/"):
             thumb_url = raw_photo.replace("/w780/", "/w342/")
         elif raw_photo.startswith("http://") or raw_photo.startswith("https://"):
@@ -4385,29 +4401,30 @@ async def inline_movie_search(inline_query: InlineQuery):
         else:
             thumb_url = DEFAULT_INLINE_POSTER_THUMB
 
+        import hashlib
+        p_hash = hashlib.md5(thumb_url.encode("utf-8")).hexdigest()[:6]
+
         title = f"{badge} #{code} — {m['name']} ({year})"
-        desc = f"⭐ {rating} | 🌏 {country} | 📀 {quality}\n{genre} | 👁 {views}"
+        desc = f"⭐ {rating} • 🌏 {country} • 📀 {quality}\n{genre} • 👁 {views}"
         deep_link = f"https://t.me/{b_uname}?start={code}"
 
         poster_hidden_link = f"<a href='{raw_photo}'>&#8205;</a>" if raw_photo.startswith("http") else ""
         text_content = (
-            f"{badge} <b>#{code} — {m['name']} ({year})</b>{poster_hidden_link}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🌏 <b>Davlati:</b> {country}\n"
-            f"📅 <b>Yili:</b> {year}\n"
-            f"📀 <b>Sifati:</b> {quality}\n"
-            f"🎞 <b>Janri:</b> {genre}\n"
-            f"🇺🇿 <b>Tili:</b> {m.get('language', 'O‘zbek tilida')}\n"
-            f"⭐ <b>Reyting:</b> {rating} / 10\n"
-            f"🔢 <b>Kino kodi:</b> <code>{code}</code>\n\n"
-            f"📢 <b>Kanal:</b> @movieee_land | 🤖 @{b_uname}"
+            f"{badge} <b>#{code} — {html.escape(str(m['name']))} ({year})</b>{poster_hidden_link}\n\n"
+            f"<blockquote>"
+            f"📅 <b>Yili:</b> {year} • 🌏 <b>Davlat:</b> {country}\n"
+            f"🎭 <b>Janr:</b> {genre}\n"
+            f"📀 <b>Sifat:</b> {quality} • ⭐ <b>IMDb:</b> {rating}/10\n"
+            f"🔢 <b>Kod:</b> <code>{code}</code>"
+            f"</blockquote>\n"
+            f"📢 @movieee_land • 🤖 @{b_uname}"
         )
         btn = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"▶️ Kinoni tomosha qilish (Kod: {code})", url=deep_link)]
+            [kb.ibtn(text=f"▶️ Tomosha qilish (Kod: {code})", url=deep_link, style="success")]
         ])
         results.append(
             InlineQueryResultArticle(
-                id=f"mov_{code}",
+                id=f"mov_{code}_{p_hash}",
                 title=title,
                 description=desc,
                 thumbnail_url=thumb_url,
@@ -4787,16 +4804,15 @@ async def cb_edit_movie_photo_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(edit_photo_code=code)
     await state.set_state(EditMoviePhotoState.waiting_photo)
     tmdb_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 TheMovieDB dan avto-poster olish", callback_data=f"tmdb_pic:{code}")]
+        [kb.ibtn(text="🌐 TheMovieDB dan HD poster olish", callback_data=f"tmdb_pic:{code}", style="primary")]
     ])
     await call.message.answer(
-        f"🖼 <b>#{code} — {movie['name']}</b> kinosi uchun yangi rasm (poster) yuboring\n"
-        f"yoki quyidagi tugma orqali <b>TheMovieDB</b> dan rasmiy HD posterni 1 klikda oling:",
+        f"🖼 <b>#{code} — {movie['name']}</b> uchun yangi rasm (poster) yuboring:",
         reply_markup=tmdb_kb,
         parse_mode="HTML"
     )
     await call.message.answer(
-        "👇 Rasmni yuboring (bekor qilish uchun «❌ Bekor qilish»):",
+        "👇 Rasmni yuboring:",
         reply_markup=kb.cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -4820,43 +4836,68 @@ async def cb_fetch_tmdb_movie_photo(call: CallbackQuery, state: FSMContext):
         force=True
     )
     if not poster_url:
-        await call.answer("⚠️ TheMovieDB dan ushbu nom bo'yicha rasm topilmadi. O'zingiz rasm yuboring.", show_alert=True)
+        await call.answer("⚠️ TheMovieDB dan rasm topilmadi. O'zingiz rasm yuboring.", show_alert=True)
         return
 
     await db.update_movie_photo(code, poster_url)
+    await export_webapp_catalog_json()
     post_btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Shu rasm bilan @movieee_land ga Post chiqarish", callback_data=f"autopost_now:{code}")],
-        [InlineKeyboardButton(text="🖼 Boshqa rasm yuklash", callback_data=f"editpic:{code}")]
+        [kb.ibtn(text="📢 @movieee_land ga Post chiqarish", callback_data=f"autopost_now:{code}", style="success")],
+        [kb.ibtn(text="🔍 Inline qidiruvda ko'rish", switch_inline_query_current_chat=str(code), style="primary")],
+        [kb.ibtn(text="🖼 Boshqa rasm yuklash", callback_data=f"editpic:{code}")]
     ])
     await call.message.answer_photo(
         photo=poster_url,
-        caption=f"✅ <b>#{code} — {movie['name']}</b> uchun TheMovieDB rasmiy HD posteri saqlandi!",
+        caption=f"✅ <b>#{code} — {movie['name']}</b> rasmi yangilandi (Inline Qidiruv, WebApp va Kanal uchun tayyor)!",
         reply_markup=post_btn,
         parse_mode="HTML"
     )
     await call.answer("✅ TMDB HD poster saqlandi!")
 
-@dp.message(EditMoviePhotoState.waiting_photo, F.photo)
+@dp.message(EditMoviePhotoState.waiting_photo, F.photo | F.document | F.text)
 async def save_edited_movie_photo(message: Message, state: FSMContext):
+    if message.text and message.text in b_vals("cancel"):
+        await cancel_action(message, state)
+        return
     data = await state.get_data()
     code = data.get("edit_photo_code")
-    await state.clear()
+    if not code:
+        await state.clear()
+        return
 
-    photo_id = message.photo[-1].file_id
-    await db.update_movie_photo(code, photo_id)
+    raw_fid = ""
+    final_photo_url = ""
+    if message.photo:
+        raw_fid = message.photo[-1].file_id
+        final_photo_url = await upload_telegram_photo_to_public_url(raw_fid)
+    elif message.document and (message.document.mime_type or "").startswith("image/"):
+        raw_fid = message.document.file_id
+        final_photo_url = await upload_telegram_photo_to_public_url(raw_fid)
+    elif message.text and message.text.strip().startswith(("http://", "https://")):
+        final_photo_url = message.text.strip()
+        raw_fid = final_photo_url
+    else:
+        await message.answer("⚠️ Iltimos, rasm fayl yoki rasm havolasini (https://...) yuboring!")
+        return
+
+    await state.clear()
+    saved_photo = final_photo_url or raw_fid
+    await db.update_movie_photo(code, saved_photo)
+    await export_webapp_catalog_json()
     movie = await db.get_movie(code, increment_view=False)
     perms = await db.get_user_permissions(message.from_user.id)
     role = await db.get_user_role(message.from_user.id)
 
     post_btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Shu rasm bilan @movieee_land ga Post chiqarish", callback_data=f"autopost_now:{code}")],
-        [InlineKeyboardButton(text="🖼 Rasmni qayta almashtirish", callback_data=f"editpic:{code}")]
+        [kb.ibtn(text="📢 @movieee_land ga Post chiqarish", callback_data=f"autopost_now:{code}", style="success")],
+        [kb.ibtn(text="🔍 Inline qidiruvda ko'rish", switch_inline_query_current_chat=str(code), style="primary")],
+        [kb.ibtn(text="🖼 Rasmni qayta almashtirish", callback_data=f"editpic:{code}")]
     ])
     await message.answer_photo(
-        photo=photo_id,
+        photo=raw_fid or saved_photo,
         caption=(
-            f"✅ <b>#{code} — {movie['name'] if movie else code}</b> uchun rasm muvaffaqiyatli saqlandi!\n\n"
-            f"👇 Endi quyidagi tugmani bosib shu rasm bilan kanalga post chiqarishingiz mumkin:"
+            f"✅ <b>#{code} — {movie['name'] if movie else code}</b> rasmi saqlandi!\n"
+            f"✨ <i>Ushbu rasm endi Inline qidiruvda, WebApp da va Kanal postida chiqadi.</i>"
         ),
         reply_markup=post_btn,
         parse_mode="HTML"
@@ -5473,29 +5514,195 @@ async def cmd_restart_bot(message: Message):
     os.execl(python_exe, python_exe, *sys.argv)
 
 
-# ===================== CLOUD / RENDER WEB SERVICE HEALTH CHECK =====================
+# ===================== TELEGRAM MINI APP (WEBAPP) VA AUTH SERVER =====================
+def verify_telegram_webapp_init_data(init_data: str) -> dict | None:
+    """
+    Telegram.WebApp.initData ni rasmiy HMAC-SHA256 (WebAppData + BOT_TOKEN) algoritmi orqali
+    kriptografik tekshiradi va foydalanuvchi ma'lumotlarini qaytaradi.
+    """
+    if not init_data:
+        return None
+    try:
+        import hmac
+        import hashlib
+        from urllib.parse import parse_qsl
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop("hash", "")
+        if not received_hash:
+            return None
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", config.BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+        calc_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc_hash, received_hash):
+            return None
+        user_raw = parsed.get("user")
+        return json.loads(user_raw) if user_raw else parsed
+    except Exception:
+        return None
+
+
+async def export_webapp_catalog_json() -> list:
+    """
+    WebApp (webapp/catalog.json) uchun jonli kinolar va seriallar katalogini yangilaydi.
+    Barcha o'zgartirilgan rasmlar (photo_id) avtomatik HTTPS URL holatida saqlanadi!
+    """
+    try:
+        webapp_dir = os.path.join(BASE_DIR, "webapp")
+        os.makedirs(webapp_dir, exist_ok=True)
+        cat_path = os.path.join(webapp_dir, "catalog.json")
+        movies = await db.get_all_movies(500)
+        catalog = []
+        if movies:
+            for m in movies:
+                code = str(m["code"])
+                raw_p = (m.get("photo_id") or "").strip()
+                if raw_p and not raw_p.startswith(("http://", "https://")):
+                    pub_p = await ensure_public_photo_url(code, raw_p)
+                    if pub_p:
+                        raw_p = pub_p
+                eps = await db.get_episodes(code)
+                catalog.append({
+                    "code": code,
+                    "name": m["name"],
+                    "genre": m.get("genre", "🔥 Jangari"),
+                    "year": str(m.get("year", "2024")),
+                    "country": m.get("country", "AQSH"),
+                    "quality": m.get("quality", "1080p Full HD"),
+                    "imdb": str(m.get("imdb", "8.5")),
+                    "views": int(m.get("views", 0)),
+                    "photo_id": raw_p,
+                    "caption": m.get("caption") or "",
+                    "is_serial": int(m.get("is_serial", 0)),
+                    "episodes_count": max(1, len(eps))
+                })
+        if catalog:
+            with open(cat_path, "w", encoding="utf-8") as f:
+                json.dump({"updated_at": datetime.now().isoformat(), "movies": catalog}, f, ensure_ascii=False, indent=2)
+        elif os.path.exists(cat_path):
+            with open(cat_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("movies", [])
+        return catalog
+    except Exception as e:
+        logging.debug(f"export_webapp_catalog_json: {e}")
+        return []
+
+
+async def sync_custom_photos_worker():
+    """
+    Bot ishga tushganda bazadagi barcha Telegram file_id ko'rinishidagi rasmlarni
+    doimiy HTTPS URL ga aylantirib chiqadi — shunda admin o'zgartirgan har bir rasm
+    Inline Qidiruvda va WebApp da 100% ko'rinadi!
+    """
+    await asyncio.sleep(2)
+    try:
+        movies = await db.get_all_movies(1000)
+        changed = False
+        for m in movies:
+            raw_p = (m.get("photo_id") or "").strip()
+            if raw_p and not raw_p.startswith(("http://", "https://")):
+                pub_p = await ensure_public_photo_url(str(m["code"]), raw_p)
+                if pub_p:
+                    changed = True
+                await asyncio.sleep(0.2)
+        if changed or movies:
+            await export_webapp_catalog_json()
+    except Exception as e:
+        logging.debug(f"sync_custom_photos_worker: {e}")
+
+
+@dp.message(F.web_app_data)
+async def handle_webapp_data_message(message: Message):
+    """WebApp ichidan sendData orqali kino yoki qism tanlanganda darhol ochib beradi."""
+    try:
+        payload = json.loads(message.web_app_data.data)
+        code = str(payload.get("code") or "").strip()
+        ep_num = int(payload.get("ep_num") or 1)
+        if code:
+            await send_movie_card(message, message.from_user.id, code, ep_num=ep_num)
+            await send_movie_video(message, message.from_user.id, code, ep_num=ep_num)
+    except Exception:
+        pass
+
+
 async def start_dummy_health_server():
     port_str = os.getenv("PORT")
     if not port_str:
         return
-    # Agar Gradio (app.py) orqali ishlayotgan bo'lsa, Gradio o'zi portni boshqaradi
     if "gradio" in sys.modules or os.path.basename(sys.argv[0]) == "app.py":
         return
     try:
         from aiohttp import web
         port = int(port_str)
         app = web.Application()
+        webapp_html_path = os.path.join(BASE_DIR, "webapp", "index.html")
+        webapp_cat_path = os.path.join(BASE_DIR, "webapp", "catalog.json")
+
+        async def handle_webapp_index(request):
+            if os.path.exists(webapp_html_path):
+                return web.FileResponse(webapp_html_path)
+            return web.Response(text="Movie Land Ultra Bot & WebApp is alive 24/7! 🎬", content_type="text/plain")
 
         async def handle_ping(request):
             return web.Response(text="Movie Land Ultra Bot is alive 24/7! 🎬", content_type="text/plain")
 
-        app.router.add_get("/", handle_ping)
+        async def handle_api_movies(request):
+            items = await export_webapp_catalog_json()
+            if not items and os.path.exists(webapp_cat_path):
+                return web.FileResponse(webapp_cat_path)
+            return web.json_response({"ok": True, "movies": items})
+
+        async def handle_api_auth(request):
+            try:
+                body = await request.json()
+                init_data = body.get("initData", "")
+                tg_u = verify_telegram_webapp_init_data(init_data)
+                if not tg_u:
+                    return web.json_response({"ok": False, "error": "invalid_signature"}, status=401)
+                uid = int(tg_u.get("id", 0))
+                db_u = await db.get_user(uid) or {}
+                is_vip = await db.is_user_premium(uid)
+                return web.json_response({
+                    "ok": True,
+                    "user": {
+                        "id": uid,
+                        "full_name": db_u.get("full_name") or tg_u.get("first_name", "User"),
+                        "username": db_u.get("username") or tg_u.get("username", ""),
+                        "role": db_u.get("role", "user"),
+                        "is_premium": is_vip,
+                        "vip_tag": db_u.get("vip_tag", "PREMIUM"),
+                        "balance": db_u.get("balance", 0),
+                    }
+                })
+            except Exception as e:
+                return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+        async def handle_api_watch(request):
+            try:
+                body = await request.json()
+                uid = int(body.get("user_id", 0))
+                code = str(body.get("code", "")).strip()
+                ep_num = int(body.get("ep_num", 1))
+                if uid and code:
+                    asyncio.create_task(send_movie_card(None, uid, code, ep_num=ep_num))
+                    asyncio.create_task(send_movie_video(None, uid, code, ep_num=ep_num))
+                    return web.json_response({"ok": True})
+            except Exception:
+                pass
+            return web.json_response({"ok": False}, status=400)
+
+        app.router.add_get("/", handle_webapp_index)
+        app.router.add_get("/webapp", handle_webapp_index)
+        app.router.add_get("/catalog.json", handle_api_movies)
+        app.router.add_get("/api/movies", handle_api_movies)
+        app.router.add_post("/api/auth", handle_api_auth)
+        app.router.add_post("/api/watch", handle_api_watch)
         app.router.add_get("/health", handle_ping)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        logging.info(f"Render/Cloud HTTP Health server listening on port {port}")
+        logging.info(f"Movie Land WebApp & HTTP Server listening on port {port}")
     except Exception as e:
         logging.warning(f"Could not start cloud health server on port {port_str}: {e}")
 
@@ -5523,7 +5730,8 @@ async def main():
         asyncio.create_task(premium_expiry_worker())
         asyncio.create_task(pycache_cleanup_worker())
         asyncio.create_task(archive_auto_scanner_worker())
-        logging.info(f"Movie Land Ultra Bot (@{BOT_USERNAME}) [PID: {os.getpid()}] 2-Tilli (UZ/RU), TMDB Poster va Mavzuli Guruh (-1002748514315) Ekotizimi bilan ishga tushdi!")
+        asyncio.create_task(sync_custom_photos_worker())
+        logging.info(f"Movie Land Ultra Bot (@{BOT_USERNAME}) [PID: {os.getpid()}] 2-Tilli (UZ/RU), WebApp, Rangli Tugmalar va Custom Emoji bilan ishga tushdi!")
         allowed = list(set(dp.resolve_used_update_types() + ["chat_member", "my_chat_member", "chat_join_request", "inline_query", "chosen_inline_result"]))
         await dp.start_polling(bot, handle_as_tasks=True, allowed_updates=allowed)
     finally:
