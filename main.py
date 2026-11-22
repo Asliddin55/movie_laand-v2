@@ -4513,8 +4513,22 @@ async def inline_movie_search(inline_query: InlineQuery):
             )
         )
 
+    if not results and offset == 0:
+        results.append(
+            InlineQueryResultArticle(
+                id=f"empty_{int(time.time())}",
+                title="📭 Hozircha bazada kinolar yo'q (0 ta)",
+                description="Kinolar bazasi to'liq tozalangan. Admin panel orqali kinolarni yuklang.",
+                thumbnail_url=DEFAULT_INLINE_POSTER_THUMB,
+                input_message_content=InputTextMessageContent(
+                    message_text="📭 <b>Hozircha bazada kinolar yo'q (Baza top-toza).</b>",
+                    parse_mode="HTML"
+                )
+            )
+        )
+
     next_off = str(offset + page_size) if has_more else ""
-    await inline_query.answer(results, cache_time=1, is_personal=True, next_offset=next_off)
+    await inline_query.answer(results, cache_time=0, is_personal=True, next_offset=next_off)
 
 
 # ===================== KINO VA SERIAL QO'SHISH =====================

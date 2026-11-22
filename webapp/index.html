@@ -673,7 +673,7 @@
   <main id="catalogView">
     <!-- HERO SPOTLIGHT -->
     <section class="hero-wrap" id="heroSection">
-      <div class="hero-card" id="heroCard">
+      <div class="hero-card" id="heroCard" style="display:none">
         <div class="hero-bg" id="heroBg"></div>
         <div class="hero-overlay">
           <div class="hero-badges" id="heroBadges"></div>
@@ -870,10 +870,10 @@
     }
 
     async function loadCatalog() {
-      const urls = ["/api/movies", "./catalog.json", GITHUB_CATALOG_URL];
+      const urls = ["/api/movies", GITHUB_CATALOG_URL, "./catalog.json"];
       for (const u of urls) {
         try {
-          const r = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now());
+          const r = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" });
           if (r.ok) {
             const data = await r.json();
             if (Array.isArray(data)) {

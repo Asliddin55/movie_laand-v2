@@ -194,7 +194,7 @@ TOP_15_AI_PROVIDERS = {
 # Telegram Mini App (WebApp) URL (GitHub CDN orqali 24/7 HTTPS + mahalliy/cloud aiohttp server)
 WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
-    "https://raw.githack.com/Asliddin55/movie_laand-v2/main/webapp/index.html"
+    "https://raw.githack.com/Asliddin55/movie_laand-v2/main/webapp/index.html?v=clean_v4"
 ).strip()
 
 # Rasmiy Telegram Premium Custom Emoji ID xaritalari (Tugmalar va matnlar uchun)
