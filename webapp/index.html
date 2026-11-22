@@ -876,9 +876,11 @@
           const r = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now());
           if (r.ok) {
             const data = await r.json();
-            const list = Array.isArray(data) ? data : (data.movies || []);
-            if (list.length > 0) {
-              ALL_MOVIES = list;
+            if (Array.isArray(data)) {
+              ALL_MOVIES = data;
+              break;
+            } else if (data && Array.isArray(data.movies)) {
+              ALL_MOVIES = data.movies;
               break;
             }
           }
@@ -896,7 +898,12 @@
     }
 
     function renderHero() {
-      if (!ALL_MOVIES.length) return;
+      const hc = document.getElementById("heroCard");
+      if (!ALL_MOVIES.length) {
+        if (hc) hc.style.display = "none";
+        return;
+      }
+      if (hc) hc.style.display = "block";
       const feat = ALL_MOVIES.find(m => m.photo_id && m.photo_id.startsWith("http")) || ALL_MOVIES[0];
       const bg = (feat.photo_id && feat.photo_id.startsWith("http")) ? feat.photo_id : FALLBACK_POSTER;
       document.getElementById("heroBg").style.backgroundImage = `url('${bg}')`;
@@ -909,7 +916,7 @@
         ${(feat.is_serial || epCnt > 1) ? `<span class="badge badge-red">📺 ${epCnt} qism</span>` : ''}
       `;
       document.getElementById("heroMetaText").textContent = `${feat.year || '2024'} • ${feat.country || 'AQSH'} • ${feat.genre || 'Kino'}`;
-      document.getElementById("heroCard").onclick = () => openMovieModal(feat);
+      hc.onclick = () => openMovieModal(feat);
     }
 
     function toggleFav(code, ev) {

@@ -952,38 +952,76 @@ async def send_movie_video(target, user_id: int, code: str, ep_num: int = 1):
     return sent
 
 
-# ===================== ARXIV KANAL AVTO-QABUL (@dp.channel_post) =====================
+# ===================== ARXIV KANAL AVTO-KATALOG VA AVTO-QABUL (@dp.channel_post) =====================
 @dp.channel_post(F.video | F.document)
 async def handle_archive_channel_new_post(message: Message):
     """
-    Movie Land ARXIV (-1003124847141) kanaliga yangi kino tashlanishi bilan
-    bot uni avtomatik o'z bazasiga qo'shib oladi va asosiy kanalga post chiqaradi!
+    Movie Land ARXIV (-1003124847141) kanaliga yangi kino yoki serial qismi tashlanishi bilan:
+    1) Uni darhol tahlil qilib archive_catalog jadvaliga kiritadi (real-time indeksatsiya);
+    2) Agar ushbu serial/kino bazaga (movies) allaqachon yuklangan bo'lsa va auto_grab yoqilgan bo'lsa,
+       yangi qismini avtomatik ulab qo'yadi;
+    3) Agar hali bazaga yuklanmagan yangi serial yoki ko'p qismli kino bo'lsa, barcha qismlar
+       to'liq tashlanib bo'lgach «📥 Bazadan Kino yuklash» / «📺 Bazadan Serial yuklash» orqali
+       1..N qism bo'lib bitta kod ostida xatosiz yuklanishi uchun katalogda tayyor saqlaydi!
     """
     arch_id = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
     if str(message.chat.id) != str(arch_id):
         return
 
-    auto_grab = await db.get_setting("auto_grab_archive", "1")
-    if auto_grab != "1":
-        return
-
     v_obj = message.video or message.document
+    if not v_obj:
+        return
     file_id = v_obj.file_id
     file_name = getattr(v_obj, "file_name", "") or ""
     video_height = getattr(v_obj, "height", 0) or 0
     raw_caption = message.caption or ""
-    auto_post = (await db.get_setting("archive_auto_post", "1")) == "1"
 
-    res = await process_archive_item(
-        file_id=file_id,
-        raw_caption=raw_caption,
-        msg_id=message.message_id,
-        do_autopost=auto_post,
+    if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz", ".json")):
+        return
+
+    parsed = ai_service.parse_archive_caption(
+        raw_text=raw_caption,
         file_name=file_name,
         video_height=video_height,
-        auto_edit_archive=True
+        msg_id=message.message_id
     )
-    logging.info(f"Arxiv kanaldan avto-qabul qilindi: {res}")
+    m_name = parsed["name"]
+    ext = ai_service.extract_base_title_and_part(m_name, raw_caption=raw_caption, file_name=file_name)
+    base_t = ext.get("base_title") or m_name
+    final_part = parsed["episode_num"] if parsed["episode_num"] > 1 else ext.get("part_num", 1)
+    final_is_serial = 1 if (parsed["is_serial"] or ext.get("is_serial") or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
+
+    await db.upsert_archive_catalog_item(
+        msg_id=message.message_id,
+        file_id=file_id,
+        file_name=file_name,
+        video_height=video_height,
+        raw_caption=raw_caption,
+        parsed_name=m_name,
+        base_title=base_t,
+        year=parsed.get("year", "2024"),
+        country=parsed.get("country", "AQSH"),
+        genre=parsed.get("genre", "🔥 Jangari"),
+        quality=parsed.get("quality", "1080p Full HD"),
+        is_serial=final_is_serial,
+        part_num=final_part,
+        is_imported=0,
+        imported_code=""
+    )
+
+    # Agar ushbu serial allaqachon movies bazasida mavjud bo'lsa, yangi qismini avto-ulaymiz
+    auto_grab = await db.get_setting("auto_grab_archive", "1")
+    if auto_grab == "1" and final_is_serial:
+        existing_serial = await db.find_movie_by_exact_name(base_t)
+        if existing_serial:
+            code = existing_serial["code"]
+            await db.add_episode(code, final_part, file_id, f"{final_part}-qism")
+            await db.mark_archive_catalog_imported([message.message_id], code)
+            await export_webapp_catalog_json()
+            logging.info(f"Arxiv kanaldan mavjud serialga yangi qism ulandi: #{code} {base_t} ({final_part}-qism)")
+            return
+
+    logging.info(f"Arxiv katalogga yangi post indekslandi: msg_id={message.message_id} | {base_t} (qism={final_part}, serial={final_is_serial})")
 
 
 # ===================== SUPER ADMIN, ADMIN & MODERATOR: BAZADAN (ARXIVDAN) KINO VA SERIAL YUKLASH =====================
@@ -1028,8 +1066,8 @@ async def _resolve_catalog_file_id(item: dict, arch_ch: int, probe_chat_id: int)
 _YEAR_RE = re.compile(r"^(19\d{2}|20\d{2})$")
 
 def _genre_is_valid(g: str) -> bool:
-    letters = re.sub(r"[^A-Za-zА-Яа-яЁёʻ'‘`ʼ]", "", g or "")
-    return len(letters) >= 5
+    parts = [p.strip() for p in (g or "").split(",") if p.strip()]
+    return bool(parts) and all(p in config.GENRES for p in parts)
 
 async def _archive_clean_meta(first_it: dict, title: str, is_serial: bool) -> dict:
     """
@@ -1149,10 +1187,16 @@ async def execute_archive_grouped_movies_load(message: Message, target_count: in
     Bazadan (Arxivdan) N ta kinoni eng boshidan guruhlab yuklaydi:
     - Seriallarni (Merlin, Envel va b.) skip qiladi!
     - Ko'p qismli kinolarni 1, 2, 3... tartibda bitta kino kodiga jamlaydi!
-    - Har bir kinoga TMDB poster oladi va @movieee_land kanaliga chiroyli post yuboradi!
+    - Har bir kinoga TMDB / KinopoiskAPI.uz / OMDb poster oladi va @movieee_land kanaliga chiroyli post yuboradi!
     """
     arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
     groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
+    if not groups:
+        try:
+            await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
+            groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
+        except Exception:
+            pass
     if not groups:
         await message.answer(
             "ℹ️ <b>Arxivdagi barcha kinolar allaqachon yuklab bo'lingan!</b>\n"
@@ -1266,6 +1310,7 @@ async def execute_archive_grouped_movies_load(message: Message, target_count: in
         summary_lines.append(f"🎬 <b>#{code}</b> — {movie_title} ({year}){parts_badge}")
         await asyncio.sleep(0.5)
 
+    await export_webapp_catalog_json()
     role = await db.get_user_role(probe_chat_id)
     perms = await db.get_user_permissions(probe_chat_id)
     panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
@@ -1339,6 +1384,12 @@ async def process_load_serials_count(message: Message, state: FSMContext):
 async def execute_archive_grouped_serials_load(message: Message, target_count: int, probe_chat_id: int):
     arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
     groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
+    if not groups:
+        try:
+            await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
+            groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
+        except Exception:
+            pass
     if not groups:
         await message.answer("ℹ️ <b>Arxivdagi barcha seriallar allaqachon yuklab bo'lingan!</b>", parse_mode="HTML")
         return
@@ -1427,6 +1478,7 @@ async def execute_archive_grouped_serials_load(message: Message, target_count: i
 
         summary_lines.append(f"📺 <b>#{code}</b> — {serial_title} ({len(resolved_eps)} qism jamlandi)")
 
+    await export_webapp_catalog_json()
     role = await db.get_user_role(probe_chat_id)
     perms = await db.get_user_permissions(probe_chat_id)
     panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
@@ -1513,6 +1565,7 @@ async def cb_sadmin_confirm_clear_movies(call: CallbackQuery):
     if await db.get_user_role(call.from_user.id) != "superadmin":
         return
     res = await db.clear_all_movies_only()
+    await export_webapp_catalog_json()
     await call.message.edit_text(
         f"✅ <b>Kinolar bazasi butkul top-toza qilindi!</b>\n"
         f"🗑 O'chirilgan kinolar: <b>{res['deleted_movies']} ta</b>\n"
@@ -5600,13 +5653,8 @@ async def export_webapp_catalog_json() -> list:
                     "is_serial": int(m.get("is_serial", 0)),
                     "episodes_count": max(1, len(eps))
                 })
-        if catalog:
-            with open(cat_path, "w", encoding="utf-8") as f:
-                json.dump({"updated_at": datetime.now().isoformat(), "movies": catalog}, f, ensure_ascii=False, indent=2)
-        elif os.path.exists(cat_path):
-            with open(cat_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("movies", [])
+        with open(cat_path, "w", encoding="utf-8") as f:
+            json.dump({"updated_at": datetime.now().isoformat(), "movies": catalog}, f, ensure_ascii=False, indent=2)
         return catalog
     except Exception as e:
         logging.debug(f"export_webapp_catalog_json: {e}")

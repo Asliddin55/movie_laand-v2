@@ -7,27 +7,36 @@ import logging
 import config
 import database as db
 
-# Janr imlo xatolarini avtomatik to'g'rilovchi lug'at
+# Janr imlo xatolarini va xalqaro (EN/RU/UZ) janrlarni avtomatik to'g'rilovchi lug'at
 GENRE_CORRECTIONS = {
     "jangari": "🔥 Jangari",
+    "jangar": "🔥 Jangari",
     "jngari": "🔥 Jangari",
     "boyevik": "🔥 Jangari",
     "bayovik": "🔥 Jangari",
     "боевик": "🔥 Jangari",
     "action": "🔥 Jangari",
+    "adventure": "🔥 Jangari",
     "sarguzasht": "🔥 Jangari",
     "sarguzash": "🔥 Jangari",
+    "sarguz": "🔥 Jangari",
     "приключения": "🔥 Jangari",
     "poyga": "🔥 Jangari",
     "boks": "🔥 Jangari",
     "sport": "🔥 Jangari",
+    "regby": "🔥 Jangari",
+    "western": "🔥 Jangari",
+    "вестерн": "🔥 Jangari",
     "komediya": "😂 Komediya",
+    "komediy": "😂 Komediya",
     "komedia": "😂 Komediya",
     "kamedia": "😂 Komediya",
     "kamediya": "😂 Komediya",
     "комедия": "😂 Komediya",
+    "comedy": "😂 Komediya",
     "fantastika": "🚀 Fantastika",
     "fantastik": "🚀 Fantastika",
+    "fantast": "🚀 Fantastika",
     "fentezi": "🚀 Fantastika",
     "fantasy": "🚀 Fantastika",
     "фантастика": "🚀 Fantastika",
@@ -35,6 +44,10 @@ GENRE_CORRECTIONS = {
     "sci-fi": "🚀 Fantastika",
     "komiks": "🚀 Fantastika",
     "sehrgarlik": "🚀 Fantastika",
+    "sehrga": "🚀 Fantastika",
+    "sehrg": "🚀 Fantastika",
+    "koinot": "🚀 Fantastika",
+    "koino": "🚀 Fantastika",
     "ujas": "👻 Qo'rqinchli",
     "ужасы": "👻 Qo'rqinchli",
     "qo'rqinchli": "👻 Qo'rqinchli",
@@ -43,6 +56,7 @@ GENRE_CORRECTIONS = {
     "daxshat": "👻 Qo'rqinchli",
     "triller": "👻 Qo'rqinchli",
     "триллер": "👻 Qo'rqinchli",
+    "thriller": "👻 Qo'rqinchli",
     "xorror": "👻 Qo'rqinchli",
     "horror": "👻 Qo'rqinchli",
     "drama": "💔 Drama",
@@ -50,23 +64,43 @@ GENRE_CORRECTIONS = {
     "драма": "💔 Drama",
     "detektiv": "🕵️ Detektiv",
     "детектив": "🕵️ Detektiv",
+    "mystery": "🕵️ Detektiv",
+    "crime": "🕵️ Detektiv",
     "kriminal": "🕵️ Detektiv",
     "криминал": "🕵️ Detektiv",
     "jinoyat": "🕵️ Detektiv",
     "anime": "🎌 Anime",
+    "аниме": "🎌 Anime",
     "multfilm": "🧸 Multfilm",
+    "multfil": "🧸 Multfilm",
+    "multfi": "🧸 Multfilm",
+    "multf": "🧸 Multfilm",
     "multik": "🧸 Multfilm",
+    "мультфильм": "🧸 Multfilm",
+    "animation": "🧸 Multfilm",
     "animatsiya": "🧸 Multfilm",
     "realisticanimation": "🧸 Multfilm",
+    "family": "🧸 Multfilm",
+    "семейный": "🧸 Multfilm",
     "oilaviy": "🧸 Multfilm",
     "tarixiy": "⚔️ Tarixiy",
+    "history": "⚔️ Tarixiy",
+    "история": "⚔️ Tarixiy",
+    "biography": "⚔️ Tarixiy",
+    "биография": "⚔️ Tarixiy",
     "biografik": "⚔️ Tarixiy",
     "hayotiy": "⚔️ Tarixiy",
     "harbiy": "⚔️ Tarixiy",
+    "военный": "⚔️ Tarixiy",
+    "war": "⚔️ Tarixiy",
     "milliy": "🇺🇿 Milliy",
     "o'zbek": "🇺🇿 Milliy",
     "hujjatli": "🌍 Hujjatli",
+    "documentary": "🌍 Hujjatli",
+    "документальный": "🌍 Hujjatli",
     "melodrama": "❤️ Melodrama",
+    "мелодрама": "❤️ Melodrama",
+    "romance": "❤️ Melodrama",
     "muhabbat": "❤️ Melodrama",
     "romantik": "❤️ Melodrama",
     "romantika": "❤️ Melodrama",
@@ -327,40 +361,121 @@ def _titles_similar(a: str, b: str, threshold: float = 0.72) -> bool:
 
 
 def normalize_country(raw_country: str) -> str:
-    """Davlat nomlarini chiroyli o'zbekcha standartga keltirish."""
+    """Davlat nomlarini chiroyli o'zbekcha standartga keltirish (EN, RU, UZ)."""
     if not raw_country:
         return "AQSH"
     c = re.sub(r"[#🌐🌍🌎🌏🇺🇸🇷🇺🇺🇿➺➤➢▪️▫️]", "", raw_country).strip(" -:,.")
     replacements = [
+        (r"\bKaliforniya\s*,?\s*", ""),
+        (r"\bUnited\s+States(?:\s+of\s+America)?\b", "AQSH"),
         (r"\bСША\b", "AQSH"),
         (r"\bAmerika\b", "AQSH"),
         (r"\bUSA\b", "AQSH"),
+        (r"\bU\.S\.A\.\b", "AQSH"),
+        (r"\bUnited\s+Kingdom\b", "Buyuk Britaniya"),
+        (r"\bВеликобритания\b", "Buyuk Britaniya"),
+        (r"\bGreat\s+Britain\b", "Buyuk Britaniya"),
+        (r"\bUK\b", "Buyuk Britaniya"),
+        (r"\bAngliya\b", "Buyuk Britaniya"),
         (r"\bRussia\b", "Rossiya"),
+        (r"\bРоссия\b", "Rossiya"),
         (r"\bCCCR\b", "Rossiya"),
         (r"\bSSSR\b", "Rossiya"),
+        (r"\bСССР\b", "Rossiya"),
+        (r"\bUSSR\b", "Rossiya"),
         (r"\bUzbekistan\b", "O'zbekiston"),
+        (r"\bУзбекистан\b", "O'zbekiston"),
         (r"\bO`zbekiston\b", "O'zbekiston"),
+        (r"\bSouth\s+Korea\b", "Janubiy Koreya"),
+        (r"\bКорея\s+Южная\b", "Janubiy Koreya"),
+        (r"\bЮжная\s+Корея\b", "Janubiy Koreya"),
+        (r"\bIndia\b", "Hindiston"),
+        (r"\bИндия\b", "Hindiston"),
+        (r"\bChina\b", "Xitoy"),
+        (r"\bКитай\b", "Xitoy"),
+        (r"\bHong\s+Kong\b", "Gonkong"),
+        (r"\bГонконг\b", "Gonkong"),
+        (r"\bJapan\b", "Yaponiya"),
+        (r"\bЯпония\b", "Yaponiya"),
+        (r"\bFrance\b", "Fransiya"),
+        (r"\bФранция\b", "Fransiya"),
+        (r"\bGermany\b", "Germaniya"),
+        (r"\bГермания\b", "Germaniya"),
+        (r"\bSpain\b", "Ispaniya"),
+        (r"\bИспания\b", "Ispaniya"),
+        (r"\bItaly\b", "Italiya"),
+        (r"\bИталия\b", "Italiya"),
+        (r"\bCanada\b", "Kanada"),
+        (r"\bКанада\b", "Kanada"),
+        (r"\bAustralia\b", "Avstraliya"),
+        (r"\bАвстралия\b", "Avstraliya"),
+        (r"\bTurkey\b", "Turkiya"),
+        (r"\bТурция\b", "Turkiya"),
+        (r"\bNorway\b", "Norvegiya"),
+        (r"\bНорвегия\b", "Norvegiya"),
+        (r"\bIndonesia\b", "Indoneziya"),
+        (r"\bИндонезия\b", "Indoneziya"),
         (r"\bIndoneyziya\b", "Indoneziya"),
+        (r"\bSouth\s+Africa\b", "Janubiy Afrika"),
+        (r"\bЮАР\b", "Janubiy Afrika"),
         (r"\bQirg'iz\b", "Qirg'iziston"),
+        (r"\bКыргызстан\b", "Qirg'iziston"),
+        (r"\bКазахстан\b", "Qozog'iston"),
         (r"\bfilmi\b", ""),
     ]
     for pat, rep in replacements:
         c = re.sub(pat, rep, c, flags=re.IGNORECASE)
-    c = re.sub(r"\s+", " ", c).strip(" -:,.")
-    return c if c else "AQSH"
+    parts = []
+    for p in c.split(","):
+        p_clean = re.sub(r"\s+", " ", p).strip(" -:,.")
+        if p_clean and p_clean not in parts:
+            parts.append(p_clean)
+    return ", ".join(parts[:3]) if parts else "AQSH"
 
 
 def normalize_genres(raw_genre: str, movie_name: str = "") -> str:
-    """Imlo xatoli janrlarni (masalan 'Komedia, Jngari' yoki 'Fantastik, Ujas') chiroyli standart janrga o'giradi."""
+    """
+    Imlo xatoli, qisqargan yoki ingliz/rus/o'zbekcha janrlarni (masalan 'Komedia, Jngari',
+    'Sehrga', 'Mul', 'Koino', 'DC, Fa', 'Action, Sci-Fi') 100% config.GENRES standartiga o'giradi.
+    Hech qachon config.GENRES dan tashqari noto'g'ri yozuv qaytarmaydi!
+    """
     text = f"{raw_genre} {movie_name}".lower()
     matched = []
     for k, clean_val in GENRE_CORRECTIONS.items():
         if k in text and clean_val not in matched:
             matched.append(clean_val)
+
+    # Qisqargan 1-3 harfli arxiv satrlarini aniq ajratish
+    tokens = [re.sub(r"[^\w']", "", t.strip().lower()) for t in (raw_genre or "").split(",") if t.strip()]
+    for tok in tokens:
+        mapped = None
+        if tok in ("mul", "mu", "mult") or ("uch bahodir" in text or "shahzoda va" in text):
+            mapped = "🧸 Multfilm"
+        elif tok in ("ja", "jan", "jang"):
+            mapped = "🔥 Jangari"
+        elif tok in ("dah", "uj"):
+            mapped = "👻 Qo'rqinchli"
+        elif tok in ("fa", "fan", "dc"):
+            mapped = "🚀 Fantastika"
+        elif tok in ("k", "kom"):
+            mapped = "😂 Komediya"
+        elif tok in ("d", "dr", "dram"):
+            mapped = "💔 Drama"
+        elif tok == "m" and "bahodir" in text:
+            mapped = "🧸 Multfilm"
+        if mapped and mapped not in matched:
+            matched.append(mapped)
+
+    if "dc" in tokens and "🔥 Jangari" not in matched:
+        matched.append("🔥 Jangari")
+    if ("uch bahodir" in text or "shahzoda va" in text) and "😂 Komediya" not in matched:
+        matched.append("😂 Komediya")
+
+    valid_set = set(config.GENRES)
+    matched = [g for g in matched if g in valid_set]
     if matched:
         return ", ".join(matched[:3])
-    clean_raw = re.sub(r"^[\W_]+", "", (raw_genre or "").strip())
-    return clean_raw if clean_raw else "🔥 Jangari"
+    return "🔥 Jangari"
 
 
 def fix_uzbek_typos(text: str) -> str:
@@ -760,12 +875,17 @@ def parse_archive_caption(raw_text: str, file_name: str = "", video_height: int 
 
 async def _lookup_tmdb_metadata(name: str, year: str = "", is_serial: bool = False) -> dict:
     """
-    Kino faqat nomi yozilganda TMDB API orqali uning aniq Yili, Davlati va Janrini
-    topib beruvchi yordamchi funksiya (rasm qo'shmaydi, faqat aniq ma'lumotlarni oladi).
+    3-BOSQICHLI METADATA QIDIRUV TIZIMI (TMDB -> KinopoiskAPI.uz -> OMDb API):
+    Kino faqat nomi yozilganda uning aniq Yili, Davlati va Janrini 3 ta provayderdan topib beradi.
     """
-    api_key = await db.get_setting("tmdb_api_key", config.TMDB_API_KEY)
-    if not api_key or not name:
+    if not name:
         return {}
+    api_key = await db.get_setting("tmdb_api_key", config.TMDB_API_KEY)
+    norm_n = _norm_title(name)
+    exact_entry = _match_exact_search_entry(norm_n)
+    ex_query, ex_year, ex_is_tv = exact_entry if exact_entry else ("", "", is_serial)
+    use_is_serial = bool(ex_is_tv or is_serial)
+    use_year = str(ex_year or year or "").strip()
 
     clean_title = re.sub(
         r"\b(?:\d+\s*[-–]?\s*(?:qism|seriya|epizod|fasl|sezon)|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida|full\s*hd|1080p|720p|4k|premyera|kino|serial)\b",
@@ -777,8 +897,8 @@ async def _lookup_tmdb_metadata(name: str, year: str = "", is_serial: bool = Fal
     if not clean_title:
         clean_title = name.strip()
 
-    endpoint = "search/tv" if is_serial else "search/movie"
-    timeout = aiohttp.ClientTimeout(total=8)
+    endpoint = "search/tv" if use_is_serial else "search/movie"
+    timeout = aiohttp.ClientTimeout(total=10)
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -786,68 +906,91 @@ async def _lookup_tmdb_metadata(name: str, year: str = "", is_serial: bool = Fal
             en_title = await _translate_query(session, clean_title, "en")
 
             queries = []
-            for q in [clean_title, en_title, ru_title]:
+            for q in [ex_query, clean_title, en_title, ru_title]:
                 if q and q not in queries:
                     queries.append(q)
 
-            for q in queries:
-                url = f"https://api.themoviedb.org/3/{endpoint}"
-                params = {
-                    "api_key": api_key,
-                    "query": q,
-                    "language": "ru-RU",
-                    "include_adult": "false"
-                }
-                if year and re.match(r"^(19\d{2}|20\d{2})$", str(year)):
-                    params["year" if endpoint == "search/movie" else "first_air_date_year"] = str(year)
+            # 1-Bosqich: TMDB API
+            if api_key:
+                for q in queries:
+                    url = f"https://api.themoviedb.org/3/{endpoint}"
+                    params = {
+                        "api_key": api_key,
+                        "query": q,
+                        "language": "ru-RU",
+                        "include_adult": "false"
+                    }
+                    if use_year and re.match(r"^(19\d{2}|20\d{2})$", use_year):
+                        params["year" if endpoint == "search/movie" else "first_air_date_year"] = use_year
 
-                async with session.get(url, params=params) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        results = data.get("results") or []
-                        # Faqat nomi haqiqatan mos keladigan natijani qabul qilamiz (noto'g'ri kino ilinib qolmasligi uchun)
-                        top = None
-                        for cand in results[:6]:
-                            cand_titles = [
-                                cand.get("title"), cand.get("original_title"),
-                                cand.get("name"), cand.get("original_name")
-                            ]
-                            if any(ct and any(_titles_similar(qv, ct) for qv in queries) for ct in cand_titles):
-                                top = cand
-                                break
-                        if top:
-                            rel_date = top.get("release_date") or top.get("first_air_date") or ""
-                            found_year = rel_date[:4] if len(rel_date) >= 4 else ""
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            results = data.get("results") or []
+                            top = None
+                            for cand in results[:6]:
+                                cand_titles = [
+                                    cand.get("title"), cand.get("original_title"),
+                                    cand.get("name"), cand.get("original_name")
+                                ]
+                                if (q == ex_query and ex_query) or any(ct and any(_titles_similar(qv, ct) for qv in queries) for ct in cand_titles):
+                                    top = cand
+                                    break
+                            if top:
+                                rel_date = top.get("release_date") or top.get("first_air_date") or ""
+                                found_year = rel_date[:4] if len(rel_date) >= 4 else use_year
 
-                            g_ids = top.get("genre_ids") or []
-                            mapped_genres = []
-                            for gid in g_ids:
-                                g_name = TMDB_GENRE_MAP.get(gid)
-                                if g_name and g_name not in mapped_genres:
-                                    mapped_genres.append(g_name)
+                                g_ids = top.get("genre_ids") or []
+                                mapped_genres = []
+                                for gid in g_ids:
+                                    g_name = TMDB_GENRE_MAP.get(gid)
+                                    if g_name and g_name not in mapped_genres:
+                                        mapped_genres.append(g_name)
 
-                            found_country = ""
-                            orig_c = top.get("origin_country") or []
-                            if orig_c:
-                                c_list = [COUNTRY_ISO_MAP.get(c.upper(), c) for c in orig_c[:2]]
-                                found_country = ", ".join(c_list)
-                            elif top.get("id") and endpoint == "search/movie":
-                                det_url = f"https://api.themoviedb.org/3/movie/{top['id']}"
-                                async with session.get(det_url, params={"api_key": api_key}) as d_resp:
-                                    if d_resp.status == 200:
-                                        det = await d_resp.json()
-                                        pcs = det.get("production_countries") or []
-                                        if pcs:
-                                            c_list = [COUNTRY_ISO_MAP.get(c.get("iso_3166_1", "").upper(), c.get("name", "")) for c in pcs[:2]]
-                                            found_country = ", ".join([c for c in c_list if c])
+                                found_country = ""
+                                orig_c = top.get("origin_country") or []
+                                if orig_c:
+                                    c_list = [COUNTRY_ISO_MAP.get(c.upper(), c) for c in orig_c[:2]]
+                                    found_country = ", ".join(c_list)
+                                elif top.get("id") and endpoint == "search/movie":
+                                    det_url = f"https://api.themoviedb.org/3/movie/{top['id']}"
+                                    async with session.get(det_url, params={"api_key": api_key}) as d_resp:
+                                        if d_resp.status == 200:
+                                            det = await d_resp.json()
+                                            pcs = det.get("production_countries") or []
+                                            if pcs:
+                                                c_list = [COUNTRY_ISO_MAP.get(c.get("iso_3166_1", "").upper(), c.get("name", "")) for c in pcs[:2]]
+                                                found_country = ", ".join([c for c in c_list if c])
 
-                            return {
-                                "year": found_year,
-                                "genre": ", ".join(mapped_genres[:3]) if mapped_genres else "",
-                                "country": found_country,
-                            }
+                                return {
+                                    "year": found_year,
+                                    "genre": ", ".join(mapped_genres[:3]) if mapped_genres else "",
+                                    "country": found_country,
+                                }
+
+            # 2-Bosqich: KinopoiskAPI.uz
+            for q in queries[:3]:
+                kp_res = await _kinopoisk_uz_search_movie(session, q, year=use_year)
+                if kp_res and (kp_res.get("year") or kp_res.get("genre") or kp_res.get("country")):
+                    return {
+                        "year": kp_res.get("year") or use_year,
+                        "genre": kp_res.get("genre") or "",
+                        "country": kp_res.get("country") or "",
+                    }
+
+            # 3-Bosqich: The OMDb API
+            for q in [ex_query, en_title, clean_title]:
+                if not q:
+                    continue
+                omdb_res = await _omdb_search_movie(session, q, year=use_year, is_serial=use_is_serial)
+                if omdb_res and (omdb_res.get("year") or omdb_res.get("genre") or omdb_res.get("country")):
+                    return {
+                        "year": omdb_res.get("year") or use_year,
+                        "genre": omdb_res.get("genre") or "",
+                        "country": omdb_res.get("country") or "",
+                    }
     except Exception as e:
-        logging.debug(f"TMDB metadata lookup xatosi ({name}): {e}")
+        logging.debug(f"Multi-provider metadata lookup xatosi ({name}): {e}")
     return {}
 
 
@@ -1300,7 +1443,73 @@ EXACT_TMDB_SEARCH_MAP = {
     "yangi mutantlar": ("The New Mutants", "2020", False),
     "yashil milya": ("The Green Mile", "1999", False),
     "yovvoyi tabiat qoyniga": ("Into the Wild", "2007", False),
+    "vilgelm tell afsonasi": ("William Tell", "2024", False),
+    "harbiy asir": ("Prisoner of War", "2025", False),
+    "qutqaruvchi": ("The Guardian", "2006", False),
+    "batman supermenga qarshi": ("Batman v Superman: Dawn of Justice", "2016", False),
+    "uch qahramon": ("Uch qahramon", "2024", False),
+    "bunker": ("Der Untergang", "2004", False),
+    "kichkina ajdarho": ("How to Train Your Dragon", "2010", False),
+    "kuzatuvchilar": ("The Watchers", "2024", False),
+    "olov oyini": ("Playing with Fire", "2019", False),
+    "momaqaldiroqlar": ("Thunderbolts*", "2025", False),
+    "ikkinchi imkoniyat": ("Gridiron Gang", "2006", False),
+    "xasis": ("Radin!", "2016", False),
+    "ekzorsist": ("The Pope's Exorcist", "2023", False),
+    "loyqa suv": ("The Shallows", "2016", False),
+    "danki": ("Dunki", "2023", False),
+    "ogrilar armiyasi": ("Army of Thieves", "2021", False),
+    "hisobchi": ("The Accountant", "2016", False),
+    "amazonka xazinasi": ("The Rundown", "2003", False),
+    "katta qadam": ("Walking Tall", "2004", False),
+    "qizil ogohlantirish": ("Red Notice", "2021", False),
+    "josus dostlar": ("Central Intelligence", "2016", False),
+    "oqdan tez": ("Faster", "2010", False),
+    "sirli sayohat": ("Journey 2: The Mysterious Island", "2012", False),
+    "sotqin": ("Snitch", "2013", False),
+    "gerakl": ("Hercules", "2014", False),
+    "san andreas zilzilasi": ("San Andreas", "2015", False),
+    "khanzab": ("Khanzab", "2023", False),
+    "uchuvchining parvozi": ("Flight of the Navigator", "1986", False),
+    "tuzoq": ("Trap", "2024", False),
+    "novda": ("Novda", "2015", False),
+    "darvin missiyasi": ("G-Force", "2009", False),
+    "sherik": ("CHiPs", "2017", False),
+    "omadli jentelmenlar": ("Джентльмены удачи", "1971", False),
+    "ormon ahli": ("Over the Hedge", "2006", False),
+    "kichkina nikolya": ("Le Petit Nicolas", "2009", False),
+    "shirinliklar mamlakati": ("Charlie and the Chocolate Factory", "2005", False),
+    "muhabbat sehri": ("Enchanted", "2007", False),
+    "ota onalar uchun tuzoq": ("The Parent Trap", "1998", False),
+    "super it": ("Underdog", "2007", False),
+    "kesha": ("Возвращение блудного попугая", "1984", False),
+    "elemental": ("Elemental", "2023", False),
+    "jigar": ("Джигар", "2024", False),
+    "betmen muqaddima": ("Batman Begins", "2005", False),
+    "yalang oyoq muhabbat": ("Barefoot", "2014", False),
+    "iztopar afsonasi": ("Legend of the Seeker", "2008", True),
+    "supermen polat odam": ("Man of Steel", "2013", False),
+    "uch bahodir va yer kindigi": ("Три богатыря и Пуп Земли", "2023", False),
 }
+
+
+def _match_exact_search_entry(norm_n: str):
+    """
+    EXACT_TMDB_SEARCH_MAP ichidan aniq moslikni topadi.
+    Qisqa 1 so'zli nomlar (masalan 'tuzoq' yoki 'qutqaruvchi') boshqa uzun nomlarga
+    noto'g'ri ilinib qolmasligi uchun uzunlik nisbatini tekshiradi.
+    """
+    if not norm_n:
+        return None
+    if norm_n in EXACT_TMDB_SEARCH_MAP:
+        return EXACT_TMDB_SEARCH_MAP[norm_n]
+    for k_norm, val_tuple in EXACT_TMDB_SEARCH_MAP.items():
+        if len(k_norm) >= 8 and len(norm_n) >= 8:
+            if k_norm in norm_n or norm_n in k_norm:
+                ratio = min(len(k_norm), len(norm_n)) / max(len(k_norm), len(norm_n))
+                if ratio >= 0.72:
+                    return val_tuple
+    return None
 
 
 def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str = "") -> dict:
@@ -1461,6 +1670,18 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
         pm = re.search(r"\b([1-9])\b", norm_n)
         return {"is_serial": 0, "base_title": "Labirintdagilar", "part_num": int(pm.group(1)) if pm else 1}
 
+    if ("supermen" in norm_n or "supper men" in norm_n) and "polat odam" in norm_n:
+        return {"is_serial": 0, "base_title": "Supermen: Po'lat odam", "part_num": 1}
+
+    if norm_n.startswith("sirli sayohat"):
+        return {"is_serial": 0, "base_title": "Sirli sayohat 2: Sirli orol", "part_num": 1}
+
+    if ("uch bahodir" in norm_n or "uch baxodir" in norm_n) and ("yer kindigi" in norm_n or "yerni markazida" in norm_n):
+        return {"is_serial": 0, "base_title": "Uch bahodir va Yer kindigi", "part_num": 1}
+
+    if ("uch bahodir" in norm_n or "uch baxodir" in norm_n) and ("ot taxt sohibi" in norm_n or "katta poygalar" in norm_n):
+        return {"is_serial": 0, "base_title": "Uch bahodir va Katta poygalar", "part_num": 1}
+
     # Umumiy X-qism yozilgan kinolar
     gen_m = re.search(r"^(.*?)\s+(\d)\s*[-–]?\s*qism$", raw_n, flags=re.IGNORECASE)
     if gen_m and len(gen_m.group(1).strip()) >= 3:
@@ -1479,7 +1700,7 @@ async def _tmdb_search_request(
     read_token: str = "",
     require_similarity: bool = False
 ) -> str:
-    """TMDB API ga so'rov yuborib poster_path yoki backdrop_path qaytaradi."""
+    """1-Provayder: TheMovieDB (TMDB API) ga so'rov yuborib poster_path yoki backdrop_path qaytaradi."""
     if not query or len(query.strip()) < 2:
         return ""
     url = f"https://api.themoviedb.org/3/{endpoint}"
@@ -1522,13 +1743,203 @@ async def _tmdb_search_request(
     return ""
 
 
+async def _kinopoisk_uz_search_movie(
+    session: aiohttp.ClientSession,
+    query: str,
+    year: str = ""
+) -> dict:
+    """
+    2-Provayder: KinopoiskAPI.uz (https://api.kinopoiskapi.uz/v1/kinopoisk/movie/search)
+    Swagger OpenAPI 2.0 spetsifikatsiyasi bo'yicha:
+    - GET /v1/kinopoisk/movie/search?page=1&limit=3&name=<query>
+    - GET /v1/kinopoisk/movie/{id}
+    - Header: Authorization: Bearer <token>
+    """
+    if not query or len(query.strip()) < 2:
+        return {}
+    base_url = getattr(config, "KINOPOISK_UZ_BASE_URL", "https://api.kinopoiskapi.uz").rstrip("/")
+    tok_main = await db.get_setting("kinopoisk_uz_token", getattr(config, "KINOPOISK_UZ_TOKEN", "987b16554ae0497db31ff58b90e8f6aa"))
+    tok_uuid = getattr(config, "KINOPOISK_UZ_TOKEN_UUID", "987b1655-4ae0-497d-b31f-f58b90e8f6aa")
+    tokens = [t for t in [tok_uuid, tok_main] if t]
+
+    search_url = f"{base_url}/v1/kinopoisk/movie/search"
+    params = {"page": 1, "limit": 5, "name": query.strip()}
+
+    for tok in tokens:
+        headers = {
+            "Authorization": f"Bearer {tok}",
+            "Accept": "application/json"
+        }
+        try:
+            async with session.get(search_url, params=params, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    items = []
+                    if isinstance(data, list):
+                        items = data
+                    elif isinstance(data, dict):
+                        items = data.get("results") or data.get("docs") or data.get("data") or data.get("items") or ([data] if data.get("kp_id") or data.get("kino_poisk_id") or data.get("poster") else [])
+
+                    chosen = None
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        it_year = str(it.get("year_production") or it.get("year") or "")[:4]
+                        if year and it_year and it_year == str(year)[:4]:
+                            chosen = it
+                            break
+                        if not chosen:
+                            chosen = it
+
+                    if chosen:
+                        poster = (chosen.get("poster") or chosen.get("poster_url") or "").strip()
+                        kp_id = chosen.get("kp_id") or chosen.get("kino_poisk_id") or chosen.get("id")
+                        if not poster and kp_id:
+                            det_url = f"{base_url}/v1/kinopoisk/movie/{kp_id}"
+                            async with session.get(det_url, headers=headers) as d_resp:
+                                if d_resp.status == 200:
+                                    det = await d_resp.json(content_type=None)
+                                    if isinstance(det, dict):
+                                        chosen = det
+                                        poster = (det.get("poster") or det.get("poster_url") or "").strip()
+
+                        raw_countries = chosen.get("countries") or []
+                        c_names = []
+                        for c_item in raw_countries:
+                            if isinstance(c_item, dict) and c_item.get("name"):
+                                c_names.append(str(c_item["name"]))
+                            elif isinstance(c_item, str):
+                                c_names.append(c_item)
+
+                        raw_genres = chosen.get("genres") or []
+                        g_names = []
+                        for g_item in raw_genres:
+                            if isinstance(g_item, dict) and g_item.get("name"):
+                                g_names.append(str(g_item["name"]))
+                            elif isinstance(g_item, str):
+                                g_names.append(g_item)
+
+                        found_yr = str(chosen.get("year_production") or chosen.get("year") or "")[:4]
+                        return {
+                            "poster": poster if poster.startswith(("http://", "https://")) else "",
+                            "year": found_yr if re.match(r"^(19\d{2}|20\d{2})$", found_yr) else "",
+                            "country": normalize_country(", ".join(c_names)) if c_names else "",
+                            "genre": normalize_genres(", ".join(g_names), query) if g_names else "",
+                            "imdb": str(chosen.get("imdb_rating") or chosen.get("kino_poisk_rating") or ""),
+                        }
+                elif resp.status >= 500:
+                    break
+        except Exception as e:
+            logging.debug(f"KinopoiskAPI.uz qidiruv xatosi ({query}): {e}")
+            break
+    return {}
+
+
+async def _omdb_search_movie(
+    session: aiohttp.ClientSession,
+    query: str,
+    year: str = "",
+    is_serial: bool = False
+) -> dict:
+    """
+    3-Provayder: The OMDb API (https://www.omdbapi.com/?apikey=23b88a7b)
+    - Avval aniq nom (?t=...) va yil (?y=...) bilan qidiradi;
+    - Topilmasa ?s=... qidiruv ro'yxatidan mos IMDb ID (imdbID) topib poster va metadatani qaytaradi.
+    """
+    if not query or len(query.strip()) < 2:
+        return {}
+    omdb_key = await db.get_setting("omdb_api_key", getattr(config, "OMDB_API_KEY", "23b88a7b"))
+    if not omdb_key:
+        return {}
+
+    url = "https://www.omdbapi.com/"
+    m_type = "series" if is_serial else "movie"
+    clean_yr = str(year).strip()[:4] if (year and re.match(r"^(19\d{2}|20\d{2})", str(year).strip())) else ""
+
+    def _parse_omdb_payload(d: dict) -> dict:
+        if not isinstance(d, dict) or d.get("Response") != "True":
+            return {}
+        poster_raw = (d.get("Poster") or "").strip()
+        poster = poster_raw if (poster_raw != "N/A" and poster_raw.startswith(("http://", "https://"))) else ""
+        yr_m = re.search(r"(19\d{2}|20\d{2})", str(d.get("Year") or ""))
+        found_yr = yr_m.group(1) if yr_m else ""
+        raw_c = (d.get("Country") or "").strip()
+        country = normalize_country(raw_c) if (raw_c and raw_c != "N/A") else ""
+        raw_g = (d.get("Genre") or "").strip()
+        genre = normalize_genres(raw_g, query) if (raw_g and raw_g != "N/A") else ""
+        imdb_r = (d.get("imdbRating") or "").strip()
+        return {
+            "poster": poster,
+            "year": found_yr,
+            "country": country,
+            "genre": genre,
+            "imdb": imdb_r if (imdb_r and imdb_r != "N/A") else "",
+        }
+
+    # 1. To'g'ridan-to'g'ri ?t= qidiruvi (yil bilan va yilsiz)
+    attempts = []
+    if clean_yr:
+        attempts.append({"apikey": omdb_key, "t": query.strip(), "y": clean_yr, "type": m_type})
+        attempts.append({"apikey": omdb_key, "t": query.strip(), "y": clean_yr})
+    attempts.append({"apikey": omdb_key, "t": query.strip(), "type": m_type})
+    attempts.append({"apikey": omdb_key, "t": query.strip()})
+
+    for params in attempts:
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    parsed = _parse_omdb_payload(data)
+                    if parsed and (parsed.get("poster") or parsed.get("year")):
+                        return parsed
+        except Exception as e:
+            logging.debug(f"OMDb (?t=) xatosi ({query}): {e}")
+
+    # 2. Ro'yxat bo'yicha ?s= qidiruvi
+    s_attempts = []
+    if clean_yr:
+        s_attempts.append({"apikey": omdb_key, "s": query.strip(), "y": clean_yr})
+    s_attempts.append({"apikey": omdb_key, "s": query.strip()})
+
+    for params in s_attempts:
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    search_list = data.get("Search") or [] if isinstance(data, dict) else []
+                    for item in search_list[:4]:
+                        p_raw = (item.get("Poster") or "").strip()
+                        imdb_id = (item.get("imdbID") or "").strip()
+                        if imdb_id:
+                            async with session.get(url, params={"apikey": omdb_key, "i": imdb_id}) as i_resp:
+                                if i_resp.status == 200:
+                                    i_data = await i_resp.json(content_type=None)
+                                    parsed = _parse_omdb_payload(i_data)
+                                    if parsed:
+                                        return parsed
+                        if p_raw and p_raw != "N/A" and p_raw.startswith(("http://", "https://")):
+                            yr_m = re.search(r"(19\d{2}|20\d{2})", str(item.get("Year") or ""))
+                            return {
+                                "poster": p_raw,
+                                "year": yr_m.group(1) if yr_m else "",
+                                "country": "",
+                                "genre": "",
+                                "imdb": "",
+                            }
+        except Exception as e:
+            logging.debug(f"OMDb (?s=) xatosi ({query}): {e}")
+    return {}
+
+
 _TMDB_POSTER_CACHE: dict = {}
 
 async def find_movie_poster_tmdb(name: str, year: str = "", is_serial: bool = False, force: bool = False) -> str:
     """
-    Kino yoki serial nomiga qarab TheMovieDB (themoviedb.org) API orqali
-    rasmiy HD Poster (rasm) URL manzilini 100% aniqlik bilan topib qaytaradi!
-    1-rasmdagi TMDB API Key va Read Access Token orqali ishlaydi.
+    3-BOSQICHLI MULTI-PROVAYDER AVTO-POSTER QIDIRUV TIZIMI:
+    1-Bosqich: TheMovieDB (TMDB API — image.tmdb.org HD posterlar)
+    2-Bosqich: KinopoiskAPI.uz (api.kinopoiskapi.uz/v1/kinopoisk/movie/search)
+    3-Bosqich: The OMDb API (omdbapi.com — IMDb rasmiy posterlari)
+    Agar 1-provayderdan rasm/prevyu topilmasa, avtomatik 2 va 3-provayderlardan topib qaytaradi!
     """
     if not force and await db.get_setting("tmdb_auto_poster", "1") != "1":
         return ""
@@ -1539,87 +1950,109 @@ async def find_movie_poster_tmdb(name: str, year: str = "", is_serial: bool = Fa
 
     api_key = await db.get_setting("tmdb_api_key", config.TMDB_API_KEY)
     read_token = await db.get_setting("tmdb_read_token", config.TMDB_READ_TOKEN)
-    if not api_key and not read_token:
-        return ""
 
-    timeout = aiohttp.ClientTimeout(total=10)
+    timeout = aiohttp.ClientTimeout(total=12)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        # 1. EXACT_TMDB_SEARCH_MAP orqali 100% aniq kino posterini olish
-        exact_entry = EXACT_TMDB_SEARCH_MAP.get(norm_n)
-        if not exact_entry:
-            for k_norm, val_tuple in EXACT_TMDB_SEARCH_MAP.items():
-                if k_norm in norm_n or norm_n in k_norm:
-                    exact_entry = val_tuple
-                    break
+        # 1. EXACT_TMDB_SEARCH_MAP orqali 100% aniq kino nomini aniqlash
+        exact_entry = _match_exact_search_entry(norm_n)
+        ex_query, ex_year, ex_is_tv = exact_entry if exact_entry else ("", "", is_serial)
+        use_is_serial = bool(ex_is_tv or is_serial)
 
-        if exact_entry:
-            ex_query, ex_year, ex_is_tv = exact_entry
-            ex_endpoint = "search/tv" if (ex_is_tv or is_serial) else "search/movie"
-            use_year = ex_year or str(year or "").strip()
-            for lg in ("ru-RU", "en-US"):
-                if use_year:
-                    poster = await _tmdb_search_request(
-                        session, ex_endpoint, ex_query, year=use_year, lang=lg, api_key=api_key, read_token=read_token
-                    )
-                    if poster:
-                        _TMDB_POSTER_CACHE[cache_key] = poster
-                        return poster
-                poster = await _tmdb_search_request(
-                    session, ex_endpoint, ex_query, year="", lang=lg, api_key=api_key, read_token=read_token
-                )
-                if poster:
-                    _TMDB_POSTER_CACHE[cache_key] = poster
-                    return poster
-
-        endpoint = "search/tv" if is_serial else "search/movie"
-        target_year = str(year or "").strip()
+        target_year = str(ex_year or year or "").strip()
         known = _find_exact_known(name)
         if known and not target_year:
             target_year = str(known.get("year", "")).strip()
 
-        clean_title = re.sub(
-            r"\b(?:\d+\s*[-–]?\s*(?:qism|seriya|epizod|fasl|sezon)|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida|full\s*hd|1080p|720p|4k|premyera|kino|serial)\b",
-            "",
-            name or "",
-            flags=re.IGNORECASE
-        )
-        clean_title = re.sub(r"[:\-_,.—]", " ", clean_title)
-        clean_title = re.sub(r"\s+", " ", clean_title).strip()
-        if not clean_title:
-            clean_title = re.sub(r"[:\-_,.—]", " ", name or "").strip()
+        # ================= 1-PROVAYDER: THEMOVIEDB (TMDB) =================
+        if api_key or read_token:
+            if exact_entry:
+                ex_endpoint = "search/tv" if use_is_serial else "search/movie"
+                for lg in ("ru-RU", "en-US"):
+                    if target_year:
+                        poster = await _tmdb_search_request(
+                            session, ex_endpoint, ex_query, year=target_year, lang=lg, api_key=api_key, read_token=read_token
+                        )
+                        if poster:
+                            _TMDB_POSTER_CACHE[cache_key] = poster
+                            return poster
+                    poster = await _tmdb_search_request(
+                        session, ex_endpoint, ex_query, year="", lang=lg, api_key=api_key, read_token=read_token
+                    )
+                    if poster:
+                        _TMDB_POSTER_CACHE[cache_key] = poster
+                        return poster
 
-        # 2. Tarjima va toza nom bo'yicha qidirish
-        ru_title = await _translate_query(session, clean_title, "ru")
-        en_title = await _translate_query(session, clean_title, "en")
+            endpoint = "search/tv" if use_is_serial else "search/movie"
+            clean_title = re.sub(
+                r"\b(?:\d+\s*[-–]?\s*(?:qism|seriya|epizod|fasl|sezon)|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida|full\s*hd|1080p|720p|4k|premyera|kino|serial)\b",
+                "",
+                name or "",
+                flags=re.IGNORECASE
+            )
+            clean_title = re.sub(r"[:\-_,.—]", " ", clean_title)
+            clean_title = re.sub(r"\s+", " ", clean_title).strip()
+            if not clean_title:
+                clean_title = re.sub(r"[:\-_,.—]", " ", name or "").strip()
 
-        candidates = []
-        for q, lg in [(en_title, "en-US"), (ru_title, "ru-RU"), (clean_title, "ru-RU"), (clean_title, "en-US")]:
-            if q and (q, lg) not in candidates:
-                candidates.append((q, lg))
+            ru_title = await _translate_query(session, clean_title, "ru")
+            en_title = await _translate_query(session, clean_title, "en")
 
-        if target_year:
+            candidates = []
+            for q, lg in [(en_title, "en-US"), (ru_title, "ru-RU"), (clean_title, "ru-RU"), (clean_title, "en-US")]:
+                if q and (q, lg) not in candidates:
+                    candidates.append((q, lg))
+
+            if target_year:
+                for q, lg in candidates:
+                    poster = await _tmdb_search_request(
+                        session, endpoint, q, year=target_year, lang=lg, api_key=api_key, read_token=read_token
+                    )
+                    if poster:
+                        _TMDB_POSTER_CACHE[cache_key] = poster
+                        return poster
+
             for q, lg in candidates:
                 poster = await _tmdb_search_request(
-                    session, endpoint, q, year=target_year, lang=lg, api_key=api_key, read_token=read_token
+                    session, endpoint, q, year="", lang=lg, api_key=api_key, read_token=read_token, require_similarity=True
                 )
                 if poster:
                     _TMDB_POSTER_CACHE[cache_key] = poster
                     return poster
 
-        for q, lg in candidates:
-            poster = await _tmdb_search_request(
-                session, endpoint, q, year="", lang=lg, api_key=api_key, read_token=read_token, require_similarity=True
-            )
-            if poster:
-                _TMDB_POSTER_CACHE[cache_key] = poster
-                return poster
+            for q, lg in candidates[:2]:
+                poster = await _tmdb_search_request(
+                    session, "search/multi", q, year="", lang=lg, api_key=api_key, read_token=read_token
+                )
+                if poster:
+                    _TMDB_POSTER_CACHE[cache_key] = poster
+                    return poster
+        else:
+            clean_title = (name or "").strip()
+            ru_title = await _translate_query(session, clean_title, "ru")
+            en_title = await _translate_query(session, clean_title, "en")
 
-        for q, lg in candidates[:2]:
-            poster = await _tmdb_search_request(
-                session, "search/multi", q, year="", lang=lg, api_key=api_key, read_token=read_token
-            )
-            if poster:
-                _TMDB_POSTER_CACHE[cache_key] = poster
-                return poster
+        # ================= 2-PROVAYDER: KINOPOISKAPI.UZ =================
+        kp_queries = []
+        for kq in [ex_query, ru_title, en_title, clean_title]:
+            if kq and kq not in kp_queries:
+                kp_queries.append(kq)
+
+        for kq in kp_queries[:3]:
+            kp_res = await _kinopoisk_uz_search_movie(session, kq, year=target_year)
+            if kp_res.get("poster"):
+                _TMDB_POSTER_CACHE[cache_key] = kp_res["poster"]
+                return kp_res["poster"]
+
+        # ================= 3-PROVAYDER: THE OMDB API (IMDb) =================
+        omdb_queries = []
+        for oq in [ex_query, en_title, clean_title]:
+            if oq and oq not in omdb_queries:
+                omdb_queries.append(oq)
+
+        for oq in omdb_queries[:3]:
+            omdb_res = await _omdb_search_movie(session, oq, year=target_year, is_serial=use_is_serial)
+            if omdb_res.get("poster"):
+                _TMDB_POSTER_CACHE[cache_key] = omdb_res["poster"]
+                return omdb_res["poster"]
 
     return ""

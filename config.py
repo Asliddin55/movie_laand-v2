@@ -30,9 +30,20 @@ TOPIC_CHAT_ID = 194              # 👑 Чат Muhokama
 TOPIC_RULES_ID = 195             # 💎 Правила Qoidalar
 TOPIC_ACTIVITY_ID = 196          # ⚡ Активный Faolik (Yangi userlar, VIP xaridlar, To'lov cheklari)
 
-# TheMovieDB (TMDB) API Sozlamalari (Kinolar rasmini avtomatik topish uchun)
-TMDB_API_KEY = "7980df6df706978740c974e3ff364ad9"
-TMDB_READ_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3OTgwZGY2ZGY3MDY5Nzg3NDBjOTc0ZTNmZjM2NGFkOSIsInN1YiI6IjY4ZTNkZmRlZmQ2YWRkMzMwNyN2Yi1sInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.UBmZ72TfWVHhp6P9Ob2i1P_OMSMP456KrOJY4yQDI04"
+# TheMovieDB (TMDB), KinopoiskAPI.uz va OMDb API Sozlamalari (3-Bosqichli Avto-Poster va Metadata Tizimi)
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7980df6df706978740c974e3ff364ad9").strip()
+TMDB_READ_TOKEN = os.getenv(
+    "TMDB_READ_TOKEN",
+    "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3OTgwZGY2ZGY3MDY5Nzg3NDBjOTc0ZTNmZjM2NGFkOSIsInN1YiI6IjY4ZTNkZmRlZmQ2YWRkMzMwNyN2Yi1sInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.UBmZ72TfWVHhp6P9Ob2i1P_OMSMP456KrOJY4yQDI04"
+).strip()
+
+# 2-Provayder: KinopoiskAPI.uz (https://api.kinopoiskapi.uz/v1/kinopoisk/...)
+KINOPOISK_UZ_BASE_URL = "https://api.kinopoiskapi.uz"
+KINOPOISK_UZ_TOKEN = os.getenv("KINOPOISK_UZ_TOKEN", "987b16554ae0497db31ff58b90e8f6aa").strip()
+KINOPOISK_UZ_TOKEN_UUID = os.getenv("KINOPOISK_UZ_TOKEN_UUID", "987b1655-4ae0-497d-b31f-f58b90e8f6aa").strip()
+
+# 3-Provayder: The OMDb API (https://www.omdbapi.com/)
+OMDB_API_KEY = os.getenv("OMDB_API_KEY", "23b88a7b").strip()
 
 # Iqtisodiyot: Kunlik Bonus, Referal va Premium Narxlari (so'mda — Super Admin paneldan o'zgartiriladi)
 DEFAULT_DAILY_REWARD = "1000"

@@ -1011,7 +1011,7 @@ async def get_next_auto_code() -> str:
 async def clear_all_movies_only() -> dict:
     """
     Bazani faqat kinolar bo'yicha top-toza qiladi:
-    movies, episodes, archive_imported, favorites, history, reactions tozalanadi.
+    movies, episodes, archive_imported, favorites, history, reactions, active_sessions tozalanadi.
     Foydalanuvchilar, kanallar va sozlamalar saqlanib qoladi.
     """
     db = await get_db_conn()
@@ -1024,6 +1024,10 @@ async def clear_all_movies_only() -> dict:
         await db.execute("DELETE FROM favorites")
         await db.execute("DELETE FROM history")
         await db.execute("DELETE FROM reactions")
+        try:
+            await db.execute("DELETE FROM active_sessions")
+        except Exception:
+            pass
         try:
             await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = ''")
         except Exception:
@@ -1229,11 +1233,32 @@ async def delete_movie(code: str) -> bool:
     code = str(code).strip().lstrip("#")
     db = await get_db_conn()
     try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT name, file_id FROM movies WHERE code = ?", (code,)) as cur:
+            m_row = await cur.fetchone()
+        async with db.execute("SELECT file_id FROM episodes WHERE movie_code = ?", (code,)) as ep_cur:
+            ep_fids = [r["file_id"] for r in await ep_cur.fetchall() if r["file_id"]]
+
         res = await db.execute("DELETE FROM movies WHERE code = ?", (code,))
         await db.execute("DELETE FROM episodes WHERE movie_code = ?", (code,))
         await db.execute("DELETE FROM favorites WHERE movie_code = ?", (code,))
         await db.execute("DELETE FROM history WHERE movie_code = ?", (code,))
+        await db.execute("DELETE FROM reactions WHERE movie_code = ?", (code,))
+        try:
+            await db.execute("DELETE FROM active_sessions WHERE movie_code = ?", (code,))
+        except Exception:
+            pass
+        await db.execute("DELETE FROM archive_imported WHERE movie_code = ?", (code,))
         await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE imported_code = ?", (code,))
+        if m_row and m_row["name"]:
+            m_name = m_row["name"].strip()
+            await db.execute(
+                "UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE LOWER(base_title) = LOWER(?) OR LOWER(parsed_name) = LOWER(?)",
+                (m_name, m_name)
+            )
+        all_fids = list(set(ep_fids + ([m_row["file_id"]] if (m_row and m_row["file_id"]) else [])))
+        for fid in all_fids:
+            await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE file_id = ?", (fid,))
         await db.commit()
         return res.rowcount > 0
     finally:
@@ -1820,11 +1845,62 @@ async def mark_archive_catalog_imported(msg_ids: list, movie_code: str):
     finally:
         await db.close()
 
+def _group_and_dedup_archive_rows(all_rows: list, prefix: str = "movie") -> list:
+    """
+    archive_catalog qatorlarini base_title bo'yicha guruhlaydi,
+    har bir guruh ichidagi dublikat part_num larni (masalan Mumiyo 3 marta yoki Ip Man 2 marta tashlangan bo'lsa)
+    filtrlab, file_id mavjud bo'lgan eng toza qismlarni 1, 2, 3... tartibda qaytaradi.
+    Agar guruhning barcha noyob qismlari (unique part_num) allaqachon yuklangan bo'lsa -> is_fully_imported = True.
+    """
+    groups_map = {}
+    group_order = []
+    for r in all_rows:
+        btitle = (r.get("base_title") or r.get("parsed_name") or f"{prefix}_{r['msg_id']}").strip()
+        key = btitle.lower()
+        if key not in groups_map:
+            groups_map[key] = {
+                "base_title": btitle,
+                "first_msg_id": r["msg_id"],
+                "raw_items": []
+            }
+            group_order.append(key)
+        groups_map[key]["raw_items"].append(r)
+
+    grouped_list = []
+    for key in group_order:
+        grp = groups_map[key]
+        items = grp["raw_items"]
+        # Har bir part_num bo'yicha guruhlab, file_id borini va birinchi msg_id ni tanlaymiz
+        by_part = {}
+        for it in items:
+            pnum = int(it.get("part_num") or 1)
+            by_part.setdefault(pnum, []).append(it)
+
+        unique_parts = []
+        all_parts_imported = True
+        for pnum in sorted(by_part.keys()):
+            p_candidates = by_part[pnum]
+            if not any(bool(c.get("is_imported")) for c in p_candidates):
+                all_parts_imported = False
+            # file_id mavjud bo'lganini ustuvor tanlaymiz
+            p_sorted = sorted(p_candidates, key=lambda x: (0 if (x.get("file_id") or "").strip() else 1, x["msg_id"]))
+            unique_parts.append(p_sorted[0])
+
+        grouped_list.append({
+            "base_title": grp["base_title"],
+            "first_msg_id": grp["first_msg_id"],
+            "items": unique_parts,
+            "all_msg_ids": [it["msg_id"] for it in items],
+            "is_fully_imported": all_parts_imported
+        })
+    return grouped_list
+
+
 async def get_unimported_archive_movies_grouped(limit_groups: int = 10) -> list:
     """
     Arxivdagi hali yuklanmagan KINOLARNI (seriallarni skip qilib!) eng boshidan tartib bilan oladi.
     Agar kinoning bir nechta qismlari bo'lsa (hatto orada boshqa kino bo'lsa yoki 3-qism 2-qismdan oldin tursa ham),
-    barchasini bitta 'base_title' guruhiga jamlaydi va qismlarni 1, 2, 3... tartibida saralaydi!
+    barchasini bitta 'base_title' guruhiga jamlaydi, dublikatlarni tozalaydi va qismlarni 1, 2, 3... tartibida saralaydi!
     """
     db = await get_db_conn()
     try:
@@ -1836,54 +1912,17 @@ async def get_unimported_archive_movies_grouped(limit_groups: int = 10) -> list:
         """) as cur:
             all_rows = [dict(r) for r in await cur.fetchall()]
 
-        # Guruhlash: base_title bo'yicha
-        groups_map = {}
-        group_order = []
-        for r in all_rows:
-            btitle = (r.get("base_title") or r.get("parsed_name") or f"movie_{r['msg_id']}").strip()
-            key = btitle.lower()
-            if key not in groups_map:
-                groups_map[key] = {
-                    "base_title": btitle,
-                    "first_msg_id": r["msg_id"],
-                    "items": []
-                }
-                group_order.append(key)
-            groups_map[key]["items"].append(r)
-
-        result_groups = []
-        for key in group_order:
-            grp = groups_map[key]
-            items = grp["items"]
-            # Agar ushbu kinoning barcha qismlari allaqachon yuklangan bo'lsa, skip qilamiz
-            unimported_items = [it for it in items if not it.get("is_imported")]
-            if not unimported_items:
-                continue
-            # Qismlarni part_num, so'ngra msg_id bo'yicha 1, 2, 3... qilib tartiblaymiz
-            # Dublikat part_num (masalan Mumiyo 2 marta tashlangan bo'lsa) ni filtrlaymiz
-            sorted_items = sorted(items, key=lambda x: (x.get("part_num", 1), x["msg_id"]))
-            unique_parts = []
-            seen_parts = set()
-            for it in sorted_items:
-                pnum = it.get("part_num", 1)
-                if len(sorted_items) > 1:
-                    if pnum in seen_parts:
-                        continue
-                    seen_parts.add(pnum)
-                unique_parts.append(it)
-            grp["items"] = unique_parts
-            grp["all_msg_ids"] = [it["msg_id"] for it in items]
-            result_groups.append(grp)
-            if len(result_groups) >= limit_groups:
-                break
-        return result_groups
+        all_groups = _group_and_dedup_archive_rows(all_rows, prefix="movie")
+        result_groups = [g for g in all_groups if not g["is_fully_imported"]]
+        return result_groups[:limit_groups]
     finally:
         await db.close()
 
+
 async def get_unimported_archive_serials_grouped(limit_groups: int = 5) -> list:
     """
-    Arxivdagi hali yuklanmagan SERIALLARNI (masalan, Afsungar Merlin 1..65, Envel Qahramonlari 1..52)
-    tahlil qilib, har bir serialning barcha qismlarini 1 ta serial kodi ostida 1, 2, 3... qilib jamlaydi.
+    Arxivdagi hali yuklanmagan SERIALLARNI (masalan, Afsungar Merlin 1..65, Envel Qahramonlari 1..52, Iztopar Afsonasi 1..43)
+    tahlil qilib, har bir serialning barcha noyob qismlarini 1 ta serial kodi ostida 1, 2, 3... qilib jamlaydi.
     """
     db = await get_db_conn()
     try:
@@ -1895,36 +1934,12 @@ async def get_unimported_archive_serials_grouped(limit_groups: int = 5) -> list:
         """) as cur:
             all_rows = [dict(r) for r in await cur.fetchall()]
 
-        groups_map = {}
-        group_order = []
-        for r in all_rows:
-            btitle = (r.get("base_title") or r.get("parsed_name") or f"serial_{r['msg_id']}").strip()
-            key = btitle.lower()
-            if key not in groups_map:
-                groups_map[key] = {
-                    "base_title": btitle,
-                    "first_msg_id": r["msg_id"],
-                    "items": []
-                }
-                group_order.append(key)
-            groups_map[key]["items"].append(r)
-
-        result_groups = []
-        for key in group_order:
-            grp = groups_map[key]
-            items = grp["items"]
-            unimported_items = [it for it in items if not it.get("is_imported")]
-            if not unimported_items:
-                continue
-            sorted_items = sorted(items, key=lambda x: (x.get("part_num", 1), x["msg_id"]))
-            grp["items"] = sorted_items
-            grp["all_msg_ids"] = [it["msg_id"] for it in items]
-            result_groups.append(grp)
-            if len(result_groups) >= limit_groups:
-                break
-        return result_groups
+        all_groups = _group_and_dedup_archive_rows(all_rows, prefix="serial")
+        result_groups = [g for g in all_groups if not g["is_fully_imported"]]
+        return result_groups[:limit_groups]
     finally:
         await db.close()
+
 
 async def get_messy_archive_catalog_items() -> list:
     """
@@ -1951,21 +1966,27 @@ async def get_messy_archive_catalog_items() -> list:
     finally:
         await db.close()
 
+
 async def get_archive_catalog_stats() -> dict:
     db = await get_db_conn()
     try:
-        async with db.execute("SELECT COUNT(*) FROM archive_catalog WHERE is_serial = 0") as cur:
-            total_movie_files = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(DISTINCT LOWER(base_title)) FROM archive_catalog WHERE is_serial = 0") as cur:
-            total_movie_groups = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(DISTINCT LOWER(base_title)) FROM archive_catalog WHERE is_serial = 0 AND is_imported = 0") as cur:
-            rem_movie_groups = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM archive_catalog WHERE is_serial = 1") as cur:
-            total_serial_eps = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(DISTINCT LOWER(base_title)) FROM archive_catalog WHERE is_serial = 1") as cur:
-            total_serial_groups = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(DISTINCT LOWER(base_title)) FROM archive_catalog WHERE is_serial = 1 AND is_imported = 0") as cur:
-            rem_serial_groups = (await cur.fetchone())[0]
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM archive_catalog WHERE is_serial = 0 ORDER BY msg_id ASC") as cur:
+            movie_rows = [dict(r) for r in await cur.fetchall()]
+        async with db.execute("SELECT * FROM archive_catalog WHERE is_serial = 1 ORDER BY msg_id ASC") as cur:
+            serial_rows = [dict(r) for r in await cur.fetchall()]
+
+        movie_groups = _group_and_dedup_archive_rows(movie_rows, prefix="movie")
+        serial_groups = _group_and_dedup_archive_rows(serial_rows, prefix="serial")
+
+        total_movie_groups = len(movie_groups)
+        rem_movie_groups = sum(1 for g in movie_groups if not g["is_fully_imported"])
+        total_movie_files = sum(len(g["items"]) for g in movie_groups)
+
+        total_serial_groups = len(serial_groups)
+        rem_serial_groups = sum(1 for g in serial_groups if not g["is_fully_imported"])
+        total_serial_eps = sum(len(g["items"]) for g in serial_groups)
+
         return {
             "total_movie_files": total_movie_files,
             "total_movie_groups": total_movie_groups,
