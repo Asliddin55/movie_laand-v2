@@ -3288,11 +3288,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
     welcome = t("welcome", lang, name=full_name, vip_badge=vip_badge)
     await message.answer(
-        f"{config.pe('⚡')} <b>Movie Land Ultra</b>",
-        reply_markup=kb.user_main_keyboard(role, lang=lang),
-        parse_mode="HTML"
-    )
-    await message.answer(
         welcome,
         reply_markup=kb.user_inline_dashboard(lang=lang),
         parse_mode="HTML"
@@ -3910,10 +3905,8 @@ async def order_movie_process(message: Message, state: FSMContext):
         )
     await message.answer(msg, reply_markup=kb.user_main_keyboard(role, lang=lang), parse_mode="HTML")
 
-@dp.message(F.text.in_(b_vals("cabinet")))
-async def user_cabinet(message: Message):
+async def _render_cabinet_screen(target, user_id: int, full_name: str):
     b_uname = await get_bot_username()
-    user_id = message.from_user.id
     lang = await db.get_user_lang(user_id)
     user = await db.get_user(user_id) or {}
     is_vip = await db.is_user_premium(user_id)
@@ -3930,7 +3923,7 @@ async def user_cabinet(message: Message):
     if lang == "ru":
         vip_line = f"💎 VIP [{vip_tag}] (до {until})" if is_vip else "Standard"
         text = (
-            f"{config.pe('👤')} <b>ПРОФИЛЬ • {html.escape(message.from_user.full_name)}</b>\n\n"
+            f"{config.pe('👤')} <b>ПРОФИЛЬ • {html.escape(full_name)}</b>\n\n"
             f"<blockquote>"
             f"🆔 <b>ID:</b> <code>{user_id}</code> • 🎖 <b>Статус:</b> {vip_line}\n"
             f"💰 <b>Баланс:</b> <code>{bal:,}</code> сум • 🔥 <b>Стрик:</b> {streak}/7 дн.\n"
@@ -3939,22 +3932,24 @@ async def user_cabinet(message: Message):
             f"🔗 <code>{ref_link}</code>"
         )
         share_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                kb.ibtn(text="🎁 Бонус", callback_data="claim_daily", style="success"),
-                kb.ibtn(text="💎 VIP Магазин", callback_data="open_vip_shop", style="primary")
-            ],
             [kb.ibtn(
                 text="📲 Пригласить друзей",
                 url=f"https://t.me/share/url?url={ref_link}&text=🎬 Лучший бот фильмов и сериалов!",
                 style="primary"
             )],
-            [kb.ibtn(text="🇺🇿 O'zbek tiliga o'tish", callback_data="set_lang:uz")],
-            [kb.ibtn(text="🔙 Назад", callback_data="back_main_menu")]
+            [
+                kb.ibtn(text="🎁 Бонус", callback_data="claim_daily"),
+                kb.ibtn(text="💎 VIP Магазин", callback_data="open_vip_shop")
+            ],
+            [
+                kb.ibtn(text="🇺🇿 O'zbek tili", callback_data="set_lang:uz"),
+                kb.ibtn(text="🔙 Назад", callback_data="back_main_menu")
+            ]
         ])
     else:
         vip_line = f"💎 VIP [{vip_tag}] ({until} gacha)" if is_vip else "Standard"
         text = (
-            f"{config.pe('👤')} <b>PROFIL • {html.escape(message.from_user.full_name)}</b>\n\n"
+            f"{config.pe('👤')} <b>PROFIL • {html.escape(full_name)}</b>\n\n"
             f"<blockquote>"
             f"🆔 <b>ID:</b> <code>{user_id}</code> • 🎖 <b>Maqom:</b> {vip_line}\n"
             f"💰 <b>Balans:</b> <code>{bal:,}</code> so'm • 🔥 <b>Streak:</b> {streak}/7 kun\n"
@@ -3963,19 +3958,49 @@ async def user_cabinet(message: Message):
             f"🔗 <code>{ref_link}</code>"
         )
         share_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                kb.ibtn(text="🎁 Kunlik Bonus", callback_data="claim_daily", style="success"),
-                kb.ibtn(text="💎 VIP Do'kon", callback_data="open_vip_shop", style="primary")
-            ],
             [kb.ibtn(
                 text="📲 Do'stlarga ulashish",
                 url=f"https://t.me/share/url?url={ref_link}&text=🎬 Eng zo'r kinolar va seriallar botiga qo'shiling!",
                 style="primary"
             )],
-            [kb.ibtn(text="🇷🇺 Русский язык", callback_data="set_lang:ru")],
-            [kb.ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
+            [
+                kb.ibtn(text="🎁 Kunlik Bonus", callback_data="claim_daily"),
+                kb.ibtn(text="💎 VIP Do'kon", callback_data="open_vip_shop")
+            ],
+            [
+                kb.ibtn(text="🇷🇺 Русский язык", callback_data="set_lang:ru"),
+                kb.ibtn(text="🔙 Orqaga", callback_data="back_main_menu")
+            ]
         ])
-    await message.answer(text, reply_markup=share_btn, parse_mode="HTML")
+
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.edit_text(text, reply_markup=share_btn, parse_mode="HTML")
+        except Exception:
+            await target.message.answer(text, reply_markup=share_btn, parse_mode="HTML")
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=share_btn, parse_mode="HTML")
+
+
+@dp.message(F.text.in_(b_vals("cabinet")))
+async def user_cabinet(message: Message):
+    await _render_cabinet_screen(message, message.from_user.id, message.from_user.full_name)
+
+
+@dp.callback_query(F.data == "nav:cabinet")
+async def cb_nav_cabinet(call: CallbackQuery):
+    await _render_cabinet_screen(call, call.from_user.id, call.from_user.full_name)
+
+
+@dp.callback_query(F.data == "nav:lang")
+async def cb_nav_lang(call: CallbackQuery):
+    lang = await db.get_user_lang(call.from_user.id)
+    try:
+        await call.message.edit_text(t("choose_lang", lang), reply_markup=kb.language_select_inline(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer(t("choose_lang", lang), reply_markup=kb.language_select_inline(), parse_mode="HTML")
+    await call.answer()
 
 
 # ===================== KINO INTERAKTIV CALLBACKLARI =====================

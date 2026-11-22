@@ -54,12 +54,10 @@ def _auto_detect_style(text: str, kwargs: dict) -> str | None:
     return None
 
 
-def ibtn(text: str, style: str | None = "AUTO", icon_custom_emoji_id: str | None = "AUTO", **kwargs) -> InlineKeyboardButton:
-    """Rangli (style) va Premium Custom Emojili (icon_custom_emoji_id) Inline tugma yaratuvchi."""
+def ibtn(text: str, style: str | None = None, icon_custom_emoji_id: str | None = "AUTO", **kwargs) -> InlineKeyboardButton:
+    """Simmetrik rangli (style) va Premium Custom Emojili (icon_custom_emoji_id) Inline tugma yaratuvchi."""
     if icon_custom_emoji_id == "AUTO":
         icon_custom_emoji_id = _detect_custom_emoji_id(text)
-    if style == "AUTO":
-        style = _auto_detect_style(text, kwargs)
     return InlineKeyboardButton(
         text=text,
         style=style,
@@ -117,45 +115,49 @@ def user_main_keyboard(role: str = "user", lang: str = "uz"):
 
 
 def user_inline_dashboard(lang: str = "uz"):
-    """Bosh sahifadagi asosiy interaktiv Rangli va Premium Emojili Inline Menyu."""
+    """Bosh sahifadagi simmetrik, estetik va mukammal Inline Menyu."""
     lang = "ru" if lang == "ru" else "uz"
     inline_search_lbl = (
         "🔍 Инлайн Каталог (С постерами)"
         if lang == "ru"
-        else "🔍 Inline Qidiruv (Rasmli Katalog)"
+        else "🔍 Inline Katalog (Rasmli Qidiruv)"
     )
     webapp_lbl = (
-        "📱 Movie Land WebApp (Мини-Приложение)"
+        "📱 Movie Land WebApp"
         if lang == "ru"
-        else "📱 Movie Land WebApp (Mini Ilova)"
+        else "📱 Movie Land WebApp"
     )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                ibtn(text=inline_search_lbl, switch_inline_query_current_chat="", style="success")
+                ibtn(text=inline_search_lbl, switch_inline_query_current_chat="", style="primary")
             ],
             [
                 ibtn(text=webapp_lbl, web_app=WebAppInfo(url=config.WEBAPP_URL), style="primary")
             ],
             [
-                ibtn(text=BTN["top"][lang], switch_inline_query_current_chat="top", style="danger"),
-                ibtn(text=BTN["new"][lang], switch_inline_query_current_chat="new", style="primary")
+                ibtn(text=BTN["top"][lang], switch_inline_query_current_chat="top"),
+                ibtn(text=BTN["new"][lang], switch_inline_query_current_chat="new")
             ],
             [
                 ibtn(text=BTN["genres"][lang], callback_data="nav:genres"),
-                ibtn(text=BTN["serials"][lang], switch_inline_query_current_chat="serial", style="primary")
+                ibtn(text=BTN["serials"][lang], switch_inline_query_current_chat="serial")
             ],
             [
                 ibtn(text=BTN["random"][lang], callback_data="nav:random"),
                 ibtn(text=BTN["favs"][lang], callback_data="nav:favs")
             ],
             [
-                ibtn(text=BTN["vip_shop"][lang], callback_data="open_vip_shop", style="primary"),
-                ibtn(text=BTN["earn"][lang], callback_data="go_earn_menu", style="success")
+                ibtn(text=BTN["vip_shop"][lang], callback_data="open_vip_shop"),
+                ibtn(text=BTN["earn"][lang], callback_data="go_earn_menu")
             ],
             [
                 ibtn(text=BTN["order"][lang], callback_data="nav:order"),
                 ibtn(text=BTN["topic_group"][lang], callback_data="nav:topic_group")
+            ],
+            [
+                ibtn(text=BTN["cabinet"][lang], callback_data="nav:cabinet"),
+                ibtn(text=BTN["lang"][lang], callback_data="nav:lang")
             ]
         ]
     )
@@ -265,20 +267,24 @@ def earn_money_inline(ref_link: str, daily_amount: str, ref_amount: str, lang: s
         share_url = f"https://t.me/share/url?url={ref_link}&text=🎬 Лучший бот фильмов и сериалов! Заходи, получай ежедневный бонус и бесплатный VIP!"
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [ibtn(text=f"🎁 Ежедневный бонус (+{int(daily_amount):,} сум)", callback_data="claim_daily", style="success")],
-                [ibtn(text=f"📲 Пригласить друзей (+{int(ref_amount):,} сум)", url=share_url, style="primary")],
-                [ibtn(text="💎 Купить VIP за баланс", callback_data="open_vip_shop", style="primary")],
-                [ibtn(text="🏆 Рейтинг", callback_data="show_leaderboard")],
+                [ibtn(text=f"🎁 Ежедневный бонус (+{int(daily_amount):,} сум)", callback_data="claim_daily", style="primary")],
+                [ibtn(text=f"📲 Пригласить друзей (+{int(ref_amount):,} сум)", url=share_url)],
+                [
+                    ibtn(text="💎 VIP Магазин", callback_data="open_vip_shop"),
+                    ibtn(text="🏆 Рейтинг", callback_data="show_leaderboard")
+                ],
                 [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
             ]
         )
     share_url = f"https://t.me/share/url?url={ref_link}&text=🎬 Eng yangi kinolar va seriallar botiga kiring, kunlik bonus oling va bepul VIP yuting!"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [ibtn(text=f"🎁 Kunlik Bonus (+{int(daily_amount):,} so'm)", callback_data="claim_daily", style="success")],
-            [ibtn(text=f"📲 Do'stlarni taklif qilish (+{int(ref_amount):,} so'm)", url=share_url, style="primary")],
-            [ibtn(text="💎 Balansga VIP xarid qilish", callback_data="open_vip_shop", style="primary")],
-            [ibtn(text="🏆 Top Reyting", callback_data="show_leaderboard")],
+            [ibtn(text=f"🎁 Kunlik Bonus (+{int(daily_amount):,} so'm)", callback_data="claim_daily", style="primary")],
+            [ibtn(text=f"📲 Do'stlarni taklif qilish (+{int(ref_amount):,} so'm)", url=share_url)],
+            [
+                ibtn(text="💎 VIP Do'kon", callback_data="open_vip_shop"),
+                ibtn(text="🏆 Top Reyting", callback_data="show_leaderboard")
+            ],
             [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
         ]
     )
@@ -288,31 +294,39 @@ def earn_money_inline(ref_link: str, daily_amount: str, ref_amount: str, lang: s
 def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_tag: str = "PREMIUM", lang: str = "uz"):
     if lang == "ru":
         buttons = [
-            [ibtn(text=f"💎 7 дней VIP ✦ {int(p7):,} сум", callback_data="buy_vip:7", style="primary")],
-            [ibtn(text=f"🔥 30 дней VIP ✦ {int(p30):,} сум", callback_data="buy_vip:30", style="danger")],
-            [ibtn(text=f"👑 90 дней VIP ✦ {int(p90):,} сум", callback_data="buy_vip:90", style="success")],
-            [ibtn(text="💳 Оплата картой (Чек)", callback_data="pay_by_card", style="primary")],
-            [ibtn(text="🎁 Бесплатные бонусы", callback_data="go_earn_menu", style="success")],
+            [ibtn(text=f"💎 7 дней VIP ✦ {int(p7):,} сум", callback_data="buy_vip:7")],
+            [ibtn(text=f"🔥 30 дней VIP ✦ {int(p30):,} сум", callback_data="buy_vip:30", style="primary")],
+            [ibtn(text=f"👑 90 дней VIP ✦ {int(p90):,} сум", callback_data="buy_vip:90")],
+            [
+                ibtn(text="💳 Оплата картой", callback_data="pay_by_card"),
+                ibtn(text="🎁 Бонусы", callback_data="go_earn_menu")
+            ],
             [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
         ]
         if is_vip:
             buttons.insert(0, [ibtn(text=f"🏷 VIP Тег: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
-            buttons.insert(1, [ibtn(text="⚡ Активировать тег в группе", callback_data="vip_apply_tags_now", style="success")])
-            buttons.insert(2, [ibtn(text="💬 Оставить отзыв", callback_data="vip_leave_review")])
+            buttons.insert(1, [
+                ibtn(text="⚡ Включить тег", callback_data="vip_apply_tags_now"),
+                ibtn(text="💬 Отзыв", callback_data="vip_leave_review")
+            ])
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     buttons = [
-        [ibtn(text=f"💎 7 Kunlik VIP ✦ {int(p7):,} so'm", callback_data="buy_vip:7", style="primary")],
-        [ibtn(text=f"🔥 30 Kunlik VIP ✦ {int(p30):,} so'm", callback_data="buy_vip:30", style="danger")],
-        [ibtn(text=f"👑 90 Kunlik VIP ✦ {int(p90):,} so'm", callback_data="buy_vip:90", style="success")],
-        [ibtn(text="💳 Karta orqali to'lov (Chek)", callback_data="pay_by_card", style="primary")],
-        [ibtn(text="🎁 Bonus & Referal yig'ish", callback_data="go_earn_menu", style="success")],
+        [ibtn(text=f"💎 7 Kunlik VIP ✦ {int(p7):,} so'm", callback_data="buy_vip:7")],
+        [ibtn(text=f"🔥 30 Kunlik VIP ✦ {int(p30):,} so'm", callback_data="buy_vip:30", style="primary")],
+        [ibtn(text=f"👑 90 Kunlik VIP ✦ {int(p90):,} so'm", callback_data="buy_vip:90")],
+        [
+            ibtn(text="💳 Karta orqali to'lov", callback_data="pay_by_card"),
+            ibtn(text="🎁 Bonus yig'ish", callback_data="go_earn_menu")
+        ],
         [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
     ]
     if is_vip:
         buttons.insert(0, [ibtn(text=f"🏷 VIP Tegim: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
-        buttons.insert(1, [ibtn(text="⚡ Guruhda [PREMIUM] Tegni yoqish", callback_data="vip_apply_tags_now", style="success")])
-        buttons.insert(2, [ibtn(text="💬 Fikr (Otziv) qoldirish", callback_data="vip_leave_review")])
+        buttons.insert(1, [
+            ibtn(text="⚡ Tegni yoqish", callback_data="vip_apply_tags_now"),
+            ibtn(text="💬 Otziv yozish", callback_data="vip_leave_review")
+        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -776,23 +790,23 @@ def movie_poster_card_keyboard(
 
     buttons.append([
         ibtn(text=fav_text, callback_data=f"fav:{code}", style="success" if is_fav else None),
-        ibtn(text=share_txt, url=share_url, style="primary")
+        ibtn(text=share_txt, url=share_url)
     ])
 
     adm_row1 = []
     if "add_movie" in user_perms or "autopost" in user_perms:
         has_pic = "🖼 Rasm yangilash" if movie.get("photo_id") else "🖼 Rasm qo'shish"
-        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}", style="primary"))
+        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}"))
     if "autopost" in user_perms:
-        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}", style="success"))
+        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}"))
     if adm_row1:
         buttons.append(adm_row1)
 
     adm_row2 = []
     if "add_movie" in user_perms:
-        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}", style="primary"))
+        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}"))
     if "del_movie" in user_perms:
-        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}", style="danger"))
+        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}"))
     if adm_row2:
         buttons.append(adm_row2)
 
@@ -916,23 +930,23 @@ def movie_action_keyboard(
 
     buttons.append([
         ibtn(text=fav_text, callback_data=f"fav:{code}", style="success" if is_fav else None),
-        ibtn(text=share_txt, url=share_url, style="primary")
+        ibtn(text=share_txt, url=share_url)
     ])
 
     adm_row1 = []
     if "add_movie" in user_perms or "autopost" in user_perms:
         has_pic = "🖼 Rasm yangilash" if movie.get("photo_id") else "🖼 Rasm qo'shish"
-        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}", style="primary"))
+        adm_row1.append(ibtn(text=has_pic, callback_data=f"editpic:{code}"))
     if "autopost" in user_perms:
-        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}", style="success"))
+        adm_row1.append(ibtn(text="📢 Kanalga Post", callback_data=f"autopost:{code}"))
     if adm_row1:
         buttons.append(adm_row1)
 
     adm_row2 = []
     if "add_movie" in user_perms:
-        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}", style="primary"))
+        adm_row2.append(ibtn(text="➕ Qism ulash", callback_data=f"addep:{code}"))
     if "del_movie" in user_perms:
-        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}", style="danger"))
+        adm_row2.append(ibtn(text="🗑 O'chirish", callback_data=f"delmov:{code}"))
     if adm_row2:
         buttons.append(adm_row2)
 

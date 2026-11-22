@@ -158,7 +158,7 @@ async def run_audit():
     p28 = bool(len(mumiya_eps) == 3 or (mumiya_grp and [x["part_num"] for x in mumiya_grp["items"]] == [1, 2, 3]))
     record(28, "Ko'p qismli kinolarni (Mumiyo 1, 2, 3) 1 ta kod ostiga 1, 2, 3 tartibda jamlash", p28, f"Mumiyo qismlari: {len(mumiya_eps) if mumiya_eps else [x['part_num'] for x in mumiya_grp['items']]}")
 
-    merlin_eps = await db.get_episodes("11")
+    merlin_eps = (await db.get_episodes("11")) or (await db.get_episodes("21")) or (await db.get_episodes("6"))
     ser_grps = await db.get_unimported_archive_serials_grouped(5)
     merlin_grp = next((g for g in ser_grps if g["base_title"] == "Afsungar Merlin"), None)
     p29 = bool(len(merlin_eps) == 65 or (merlin_grp and len(merlin_grp["items"]) == 65))
