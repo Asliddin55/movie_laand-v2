@@ -5718,6 +5718,16 @@ async def main():
         dp.include_router(fallback_router)
         me = await bot.get_me()
         BOT_USERNAME = me.username
+        try:
+            from aiogram.types import MenuButtonWebApp, WebAppInfo
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="🎬 WebApp",
+                    web_app=WebAppInfo(url=config.WEBAPP_URL)
+                )
+            )
+        except Exception:
+            pass
         # Barcha mavjud Premium foydalanuvchilarga Mavzuli Guruhda (-1002748514315) avtomatik PREMIUM tegini sinxronlash
         try:
             vips = await db.get_all_premium_users()
