@@ -81,7 +81,7 @@ sleep 1
 
 # 6. Botni (ichki WebApp HTTP serveri — 100% bo'sh kernel portda!) orqa fonda ishga tushirish
 export WEBAPP_PORT=0
-nohup "$PY_BIN" main.py > bot.log 2>&1 &
+nohup "$PY_BIN" main.py </dev/null > bot.log 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > bot.pid
 
@@ -117,7 +117,7 @@ else
     fi
     if [ -x "./.cloudflared" ]; then
         rm -f cloudflared.log
-        nohup ./.cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:${LOCAL_PORT}" > cloudflared.log 2>&1 &
+        GOMAXPROCS=2 GOGC=50 nohup ./.cloudflared tunnel --no-autoupdate --protocol http2 --url "http://127.0.0.1:${LOCAL_PORT}" </dev/null > cloudflared.log 2>&1 &
         CF_PID=$!
         echo "$CF_PID" > cloudflared.pid
         TUNNEL_URL=""

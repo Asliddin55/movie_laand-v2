@@ -6961,6 +6961,8 @@ async def start_dummy_health_server():
                 site = web.TCPSite(runner, bind_host, 0)
                 await site.start()
                 bound_port = site._server.sockets[0].getsockname()[1]
+        global _LOCAL_WEBAPP_PORT
+        _LOCAL_WEBAPP_PORT = bound_port
         try:
             tmp_pf = os.path.join(BASE_DIR, ".webapp_port.tmp")
             with open(tmp_pf, "w", encoding="utf-8") as pf:
@@ -6971,6 +6973,114 @@ async def start_dummy_health_server():
         logging.info(f"Movie Land WebApp & HTTP Server listening on {bind_host}:{bound_port}")
     except Exception as e:
         logging.warning(f"Could not start cloud health server on port {port_str}: {e}")
+
+
+_LOCAL_WEBAPP_PORT = 0
+
+
+async def webapp_ssl_tunnel_watchdog():
+    """
+    24/7 Avto-Tiklanuvchi HTTPS WebApp Tunnel Watchdog (MyXvest / CloudLinux uchun):
+    - Agar cloudflared jarayoni to'xtab qolsa yoki 530/1033 xato bersa, uni GOMAXPROCS=2 bilan
+      avtomatik qayta ko'taradi, yangi ishonchli HTTPS URL ni DB ga yozadi va Telegram Menu
+      WebApp tugmasini darhol sinxronlaydi!
+    """
+    if platform.system() != "Linux":
+        return
+    await asyncio.sleep(20)
+    cf_bin = os.path.join(BASE_DIR, ".cloudflared")
+    cf_log = os.path.join(BASE_DIR, "cloudflared.log")
+    cf_pid_file = os.path.join(BASE_DIR, "cloudflared.pid")
+
+    while True:
+        try:
+            if not _LOCAL_WEBAPP_PORT or not os.path.isfile(cf_bin):
+                await asyncio.sleep(60)
+                continue
+
+            cur_url = (await db.get_setting("webapp_url", config.WEBAPP_URL) or "").strip()
+            # Agar asosiy MyXvest domeni ishonchli SSL ga o'tgan bo'lsa, tunnelga hojat yo'q
+            if "myxvest1.ru" in cur_url:
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6)) as s:
+                        async with s.head(cur_url) as r:
+                            if r.status < 500:
+                                await asyncio.sleep(120)
+                                continue
+                except Exception:
+                    pass
+
+            # Joriy trycloudflare tunnel tirikligini tekshiramiz (HTTP 200 bo'lishi shart, 530 = o'lik!)
+            tunnel_ok = False
+            if "trycloudflare.com" in cur_url:
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as s:
+                        async with s.get(cur_url.rstrip("/") + "/health") as r:
+                            txt = await r.text()
+                            if r.status == 200 and "Movie Land" in txt:
+                                tunnel_ok = True
+                except Exception:
+                    tunnel_ok = False
+
+            if tunnel_ok:
+                await asyncio.sleep(45)
+                continue
+
+            # Tunnel uzilgan yoki 1033 (530) -> xavfsiz qayta ko'tarish (GOMAXPROCS=2 bilan CloudLinux LVE ga mos!)
+            logging.warning("WebApp HTTPS Tunnel uzildi (yoki 1033) — avtomatik qayta tiklanmoqda...")
+            if os.path.isfile(cf_pid_file):
+                try:
+                    old_pid = int(open(cf_pid_file).read().strip())
+                    if old_pid > 1:
+                        os.kill(old_pid, signal.SIGTERM)
+                except Exception:
+                    pass
+                try:
+                    os.remove(cf_pid_file)
+                except Exception:
+                    pass
+            await asyncio.sleep(1)
+
+            env = os.environ.copy()
+            env["GOMAXPROCS"] = "2"
+            env["GOGC"] = "50"
+            log_f = open(cf_log, "wb")
+            proc = subprocess.Popen(
+                [cf_bin, "tunnel", "--no-autoupdate", "--protocol", "http2", "--url", f"http://127.0.0.1:{_LOCAL_WEBAPP_PORT}"],
+                stdin=subprocess.DEVNULL,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                env=env,
+                start_new_session=True,
+            )
+            log_f.close()
+            try:
+                with open(cf_pid_file, "w", encoding="utf-8") as pf:
+                    pf.write(str(proc.pid))
+            except Exception:
+                pass
+
+            new_url = ""
+            for _ in range(20):
+                await asyncio.sleep(1)
+                try:
+                    txt = open(cf_log, "r", encoding="utf-8", errors="ignore").read()
+                    m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", txt)
+                    if m:
+                        new_url = m.group(0) + "/"
+                        break
+                except Exception:
+                    pass
+
+            if new_url:
+                await db.set_setting("webapp_url", new_url)
+                await _sync_telegram_webapp_menu()
+                logging.info(f"WebApp HTTPS Tunnel qayta tiklandi va Telegram Menu yangilandi: {new_url}")
+        except Exception as e:
+            logging.debug(f"webapp_ssl_tunnel_watchdog: {e}")
+        await asyncio.sleep(45)
 
 
 # ===================== ASOSIY ISHGA TUSHIRISH =====================
@@ -6998,6 +7108,7 @@ async def main():
         asyncio.create_task(pycache_cleanup_worker())
         asyncio.create_task(archive_auto_scanner_worker())
         asyncio.create_task(sync_custom_photos_worker())
+        asyncio.create_task(webapp_ssl_tunnel_watchdog())
         logging.info(f"Movie Land Ultra Bot (@{BOT_USERNAME}) [PID: {os.getpid()}] 2-Tilli (UZ/RU), WebApp, Rangli Tugmalar va Custom Emoji bilan ishga tushdi!")
         allowed = list(set(dp.resolve_used_update_types() + ["chat_member", "my_chat_member", "chat_join_request", "inline_query", "chosen_inline_result"]))
         await dp.start_polling(bot, handle_as_tasks=True, allowed_updates=allowed)
