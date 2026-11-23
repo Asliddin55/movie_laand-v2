@@ -3948,14 +3948,21 @@ async def cmd_start(message: Message, state: FSMContext):
                 ref_by = int(ref_str)
         elif p_low in ("vip", "premium", "vip_shop"):
             special_nav = "vip"
-        elif p_low in ("bonus", "earn", "referral"):
+        elif p_low in ("bonus", "earn", "earn_money", "referral"):
             special_nav = "bonus"
-        elif "_" in param and all(p.isdigit() for p in param.lstrip("#").split("_", 1)):
-            c_part, ep_part = param.lstrip("#").split("_", 1)
-            movie_code = c_part
-            start_ep = int(ep_part)
         else:
-            movie_code = param.lstrip("#")
+            clean_p = p_low
+            if clean_p.startswith("watch_"):
+                clean_p = clean_p[6:]
+            elif clean_p.startswith("movie_"):
+                clean_p = clean_p[6:]
+            clean_p = clean_p.lstrip("#")
+            if "_" in clean_p and all(p.isdigit() for p in clean_p.split("_", 1)):
+                c_part, ep_part = clean_p.split("_", 1)
+                movie_code = c_part
+                start_ep = int(ep_part)
+            else:
+                movie_code = clean_p
 
     add_res = await db.add_user(user_id, username, full_name, ref_by=ref_by)
     if isinstance(add_res, dict) and add_res.get("is_new"):

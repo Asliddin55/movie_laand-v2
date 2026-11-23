@@ -202,7 +202,7 @@
 
   function watchMovieInBot(code, epNum = 1) {
     haptic('medium');
-    openBotLink(`watch_${code}_${epNum}`);
+    openBotLink(`${code}_${epNum}`);
   }
 
   // ==================== NAVIGATION ====================
@@ -716,7 +716,7 @@
     }
 
     const bonusRow = document.getElementById('dailyBonusRow');
-    if (bonusRow) bonusRow.addEventListener('click', () => openBotLink('earn_money'));
+    if (bonusRow) bonusRow.addEventListener('click', () => openBotLink('bonus'));
 
     const aiRow = document.getElementById('openAiFromProfile');
     if (aiRow) aiRow.addEventListener('click', () => openAiModal());
@@ -792,7 +792,7 @@
     document.getElementById('detailWatchBtn').addEventListener('click', () => watchMovieInBot(m.code, 1));
     document.getElementById('detailFavBtn').addEventListener('click', () => toggleFavorite(m.code));
     document.getElementById('detailShareBtn').addEventListener('click', () => {
-      const link = `https://t.me/${state.config.bot_username}?start=watch_${m.code}_1`;
+      const link = `https://t.me/${state.config.bot_username}?start=${m.code}_${1}`;
       const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`${m.name} (${m.year}) — Movie Land`)}`;
       openExternalUrl(share);
     });
