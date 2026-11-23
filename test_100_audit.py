@@ -158,7 +158,8 @@ async def run_audit():
     p28 = bool(len(mumiya_eps) == 3 or (mumiya_grp and [x["part_num"] for x in mumiya_grp["items"]] == [1, 2, 3]))
     record(28, "Ko'p qismli kinolarni (Mumiyo 1, 2, 3) 1 ta kod ostiga 1, 2, 3 tartibda jamlash", p28, f"Mumiyo qismlari: {len(mumiya_eps) if mumiya_eps else [x['part_num'] for x in mumiya_grp['items']]}")
 
-    merlin_eps = (await db.get_episodes("11")) or (await db.get_episodes("21")) or (await db.get_episodes("6"))
+    merlin_row = await db.find_movie_by_exact_name("Afsungar Merlin")
+    merlin_eps = await db.get_episodes(merlin_row["code"]) if merlin_row else []
     ser_grps = await db.get_unimported_archive_serials_grouped(5)
     merlin_grp = next((g for g in ser_grps if g["base_title"] == "Afsungar Merlin"), None)
     p29 = bool(len(merlin_eps) == 65 or (merlin_grp and len(merlin_grp["items"]) == 65))
@@ -406,8 +407,64 @@ async def run_audit():
 
     record(99, "Faollik jurnali (Activity Logging)", hasattr(ecosystem_handlers, "log_to_activity_topic"), "Mavzuli guruhga jonli seanslar yuboriladi")
 
+    # 101-110: Ultimate Yangilanishlar (Owner Immunity, /web_admin, Multi-Season Serial, Zero Duplicate, Strict Poster, MyXvest WebApp)
+    # 101: Owner (6188085308) self-demotion immunity
+    await db.set_user_role(6188085308, "admin")
+    r_after_admin = await db.get_user_role(6188085308)
+    await db.set_user_role(6188085308, "user")
+    r_after_user = await db.get_user_role(6188085308)
+    record(101, "Bot Egasi (6188085308) Super Admin himoyasi (o'zini pasaytirish bloklangan)", r_after_admin == "superadmin" and r_after_user == "superadmin", f"admin->{r_after_admin}, user->{r_after_user}")
+
+    # 102: /web_admin password & 24h session & trailers CRUD
+    wa_pass = await db.get_setting("web_admin_password", "")
+    await db.grant_web_admin_session(test_uid, hours=24)
+    wa_sess = await db.is_web_admin_session_valid(test_uid)
+    tr_id = await db.add_webapp_trailer("Audit Trailer", "https://example.com/p.jpg", "https://youtu.be/dQw4w9WgXcQ")
+    trs = await db.get_webapp_trailers()
+    has_tr = any(t["id"] == tr_id for t in trs)
+    await db.delete_webapp_trailer(tr_id)
+    record(102, "/web_admin paroli (asliddin29092006), 24s sessiya va treylerlar CRUD", wa_pass == "asliddin29092006" and wa_sess and has_tr, f"pass_ok={wa_pass == 'asliddin29092006'}, sess={wa_sess}, trailer_id={tr_id}")
+
+    # 103: Multi-season & multi-digit episode extraction
+    ex1 = ai_service.extract_base_title_and_part("Iztopar 24-qism")
+    ex2 = ai_service.extract_base_title_and_part("Qog'oz Bino S02E15")
+    ex3 = ai_service.extract_base_title_and_part("Merlin 3-fasl 12-qism")
+    p103 = (
+        ex1["part_num"] == 24 and ex1["is_serial"]
+        and ex2["season_num"] == 2 and ex2["part_num"] == 15 and ex2["is_serial"]
+        and ex3["season_num"] == 3 and ex3["part_num"] == 12 and ex3["is_serial"]
+    )
+    record(103, "Ko'p faslli va 2-3 xonali serial qismlarini aniq ajratish (S02E15, 24-qism)", p103, f"ex1={ex1}, ex2={ex2}, ex3={ex3}")
+
+    # 104: Zero-duplicate guard
+    dup_by_name = await db.find_existing_movie_duplicate("Afsungar Merlin", "")
+    p104 = dup_by_name is not None or (await db.get_full_stats())["total_movies"] == 0
+    record(104, "Dublikat bloklash (find_existing_movie_duplicate)", p104, f"Topildi: {dup_by_name['code'] if dup_by_name else 'bo_sh baza'}")
+
+    # 105: Strict poster validation (no wrong foreign poster for Uzbek concert Bravo jamoasi)
+    bravo_p = await ai_service.find_movie_poster_tmdb("Bravo jamoasi 2024", "2024", force=True)
+    record(105, "Aniq poster himoyasi (Bravo jamoasi ga begona rasm qo'yilmasligi)", not bravo_p, f"bravo_poster={bravo_p!r}")
+
+    # 106: Clean button labels (no "(Rasmli" or "Inline Katalog")
+    all_dash_texts = [b.text for row in dash_kb.inline_keyboard for b in row]
+    all_cat_texts = [b.text for row in test_kb_cat.inline_keyboard for b in row]
+    p106 = all(("Rasmli" not in tx and "Inline Katalog" not in tx and "Inline Qidiruv" not in tx) for tx in all_dash_texts + all_cat_texts)
+    record(106, "Toza Ultimate tugma nomlari (ortiqcha Rasmli/Inline Katalog olib tashlangan)", p106, f"Tugmalar: {all_dash_texts[:4]}")
+
+    # 107: MyXvest WebApp URL & native PHP files
+    w_url = await main.get_webapp_url()
+    p107 = (
+        "6b02fedeb2d06.myxvest1.ru" in w_url
+        and "github" not in w_url.lower()
+        and os.path.exists("index.php")
+        and os.path.exists("api.php")
+        and os.path.exists(".htaccess")
+        and os.path.exists("webapp/index.html")
+    )
+    record(107, "MyXvest WebApp domeni, index.php, api.php va .htaccess mavjudligi", p107, f"URL={w_url}")
+
     p100 = all(r[2] for r in audit_results)
-    record(100, "100-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
+    record(100, "107-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
 
     # Audit davomida yaratilgan vaqtinchalik test yozuvlarini tozalash (bazada iz qolmasligi uchun)
     async with aiosqlite.connect(db.DB_NAME, timeout=30.0) as c:
@@ -420,6 +477,9 @@ async def run_audit():
         await c.execute("DELETE FROM settings WHERE key = 'payment_card';")
         await c.execute("DELETE FROM orders WHERE user_id = ?;", (test_uid,))
         await c.commit()
+
+    await ai_service.close_http_session()
+    await main.bot.session.close()
 
     print("=" * 70)
     passed_cnt = sum(1 for r in audit_results if r[2])

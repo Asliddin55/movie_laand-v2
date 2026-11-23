@@ -133,12 +133,12 @@ TEXTS = {
         "uz": (
             f"{pe('🍿')} <b>MOVIE LAND ULTRA</b>\n"
             f"<blockquote>{pe('👤')} <b>{{name}}</b> • {{vip_badge}}\n"
-            f"{pe('🔍')} <i>Kino kodini yozing yoki Inline Katalog / WebApp ni oching:</i></blockquote>"
+            f"{pe('🔍')} <i>Kino kodini yozing yoki «Kino qidirish» tugmasini bosing:</i></blockquote>"
         ),
         "ru": (
             f"{pe('🍿')} <b>MOVIE LAND ULTRA</b>\n"
             f"<blockquote>{pe('👤')} <b>{{name}}</b> • {{vip_badge}}\n"
-            f"{pe('🔍')} <i>Отправьте код фильма или откройте Инлайн Каталог / WebApp:</i></blockquote>"
+            f"{pe('🔍')} <i>Отправьте код фильма или нажмите «Поиск фильмов»:</i></blockquote>"
         ),
     },
     "vip_badge_active": {
@@ -158,16 +158,16 @@ TEXTS = {
         "ru": f"{pe('❌')} Фильм <b>#{{code}}</b> не найден.",
     },
     "movie_not_found_text": {
-        "uz": f"{pe('❌')} <b>«{{q}}»</b> topilmadi. Inline katalog orqali qidiring.",
-        "ru": f"{pe('❌')} <b>«{{q}}»</b> не найдено. Воспользуйтесь инлайн-поиском.",
+        "uz": f"{pe('❌')} <b>«{{q}}»</b> topilmadi. «Kino qidirish» orqali qidiring.",
+        "ru": f"{pe('❌')} <b>«{{q}}»</b> не найдено. Воспользуйтесь поиском фильмов.",
     },
     "cancelled": {
         "uz": f"{pe('✅')} Bekor qilindi.",
         "ru": f"{pe('✅')} Отменено.",
     },
     "search_prompt": {
-        "uz": f"{pe('🔍')} <b>Inline Katalog yoki kino kodini tanlang:</b>",
-        "ru": f"{pe('🔍')} <b>Откройте Инлайн Каталог или введите код:</b>",
+        "uz": f"{pe('🔍')} <b>Kino qidirish yoki kodini kiriting:</b>",
+        "ru": f"{pe('🔍')} <b>Откройте поиск фильмов или введите код:</b>",
     },
     "search_results": {
         "uz": f"{pe('🔍')} <b>«{{q}}»</b> ({'{cnt}'} ta):",

@@ -226,6 +226,25 @@ class SuperAuthState(StatesGroup):
     waiting_password = State()
     change_password = State()
 
+class WebAdminState(StatesGroup):
+    waiting_password = State()
+    waiting_new_password = State()
+    waiting_url = State()
+    waiting_title = State()
+    waiting_subtitle = State()
+    waiting_banner = State()
+    waiting_trailer_title = State()
+    waiting_trailer_poster = State()
+    waiting_trailer_video = State()
+
+_ARCHIVE_JOB_LOCK = asyncio.Lock()
+
+async def get_webapp_url() -> str:
+    url = (await db.get_setting("webapp_url", config.WEBAPP_URL) or "").strip()
+    if not url or "githack" in url.lower() or "github" in url.lower():
+        url = config.WEBAPP_URL
+    return url
+
 class ArchivePullState(StatesGroup):
     waiting_count = State()
     waiting_movies_count = State()
@@ -432,15 +451,15 @@ class MandatorySubMiddleware(BaseMiddleware):
             if event.chat.type != "private":
                 return await handler(event, data)
             txt = (event.text or "").strip()
-            # Super-Admin va Admin panel komandalarini o'tkazish
-            if txt.startswith(("/spanel", "/sadmin", "/panel", "/admin", "/lang", "/language")) or txt in b_vals("lang"):
+            # Super-Admin, WebAdmin va Admin panel komandalarini o'tkazish
+            if txt.startswith(("/spanel", "/sadmin", "/web_admin", "/panel", "/admin", "/lang", "/language")) or txt in b_vals("lang"):
                 return await handler(event, data)
-            if txt in ("👑 SUPER ADMIN PANEL", "👮 Admin Panel", "🏠 Foydalanuvchi menyusi"):
+            if txt in ("👑 SUPER ADMIN PANEL", "👮 Admin Panel", "🌐 WebApp Admin", "🏠 Foydalanuvchi menyusi"):
                 return await handler(event, data)
             state: FSMContext = data.get("state")
             if state:
                 cur_st = await state.get_state()
-                if cur_st == SuperAuthState.waiting_password.state:
+                if cur_st in (SuperAuthState.waiting_password.state, WebAdminState.waiting_password.state):
                     return await handler(event, data)
 
         elif isinstance(event, CallbackQuery):
@@ -448,7 +467,7 @@ class MandatorySubMiddleware(BaseMiddleware):
                 return await handler(event, data)
             cb_data = event.data or ""
             # Til tanlash, obunani tekshirish va admin boshqaruv tugmalarini o'tkazish
-            if cb_data.startswith(("set_lang:", "check_sub", "sadm_", "adm_", "settings_", "toggle_", "btn_")):
+            if cb_data.startswith(("set_lang:", "check_sub", "sadm_", "adm_", "wadm_", "settings_", "toggle_", "btn_")):
                 return await handler(event, data)
 
         # Agar hali til tanlamagan bo'lsa, avval til tanlash oynasini chiqaramiz
@@ -484,9 +503,10 @@ _PHOTO_URL_CACHE = BoundedDict(2000)
 
 async def upload_telegram_photo_to_public_url(file_id: str) -> str:
     """
-    Telegram photo file_id ni doimiy HTTPS rasm URL ga (Catbox CDN -> Telegram CDN zaxirasi) aylantiradi.
-    Shunda admin o'zgartirgan rasm ham @movieee_land kanal postida, ham Poster Cardda,
-    ham @movieeland_bot Inline Qidiruvida (thumbnail_url), ham WebApp da 100% ko'rinadi!
+    Telegram photo file_id ni doimiy HTTPS rasm URL ga aylantiradi:
+    1) MyXvest hostingda bo'lsa, to'g'ridan-to'g'ri o'z saytimizning `uploads/posters/` papkasiga saqlaydi (eng tezkor va ishonchli!);
+    2) Aks holda Catbox CDN -> Telegram CDN zaxirasi orqali beradi.
+    Shunda admin o'zgartirgan har bir rasm Inline Qidiruvda, Kanal postida va WebApp da 100% ko'rinadi!
     """
     if not file_id:
         return ""
@@ -497,6 +517,7 @@ async def upload_telegram_photo_to_public_url(file_id: str) -> str:
 
     try:
         import io
+        import hashlib
         import aiohttp
         tg_file = await bot.get_file(file_id)
         tg_cdn_url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{tg_file.file_path}"
@@ -504,6 +525,24 @@ async def upload_telegram_photo_to_public_url(file_id: str) -> str:
         await bot.download_file(tg_file.file_path, destination=buf)
         img_bytes = buf.getvalue()
         if img_bytes:
+            # 1. O'z saytimiz (MyXvest) uploads/posters/ papkasiga saqlash
+            try:
+                posters_dir = os.path.join(BASE_DIR, "uploads", "posters")
+                os.makedirs(posters_dir, exist_ok=True)
+                fname = f"p_{hashlib.md5(file_id.encode('utf-8')).hexdigest()[:16]}.jpg"
+                fpath = os.path.join(posters_dir, fname)
+                with open(fpath, "wb") as f:
+                    f.write(img_bytes)
+                if os.name != "nt":
+                    web_base = (await get_webapp_url()).rstrip("/")
+                    if web_base.startswith("https://") and "github" not in web_base.lower():
+                        own_url = f"{web_base}/uploads/posters/{fname}"
+                        _PHOTO_URL_CACHE[file_id] = own_url
+                        return own_url
+            except Exception:
+                pass
+
+            # 2. Zaxira CDN (lokal test yoki boshqa muhit uchun)
             async with aiohttp.ClientSession() as sess:
                 try:
                     form = aiohttp.FormData()
@@ -664,9 +703,12 @@ async def process_archive_item(
         video_height=video_height,
         msg_id=msg_id
     )
-    name = parsed["name"]
-    is_serial = parsed["is_serial"]
-    ep_num = parsed["episode_num"]
+    raw_name = parsed["name"]
+    ext = ai_service.extract_base_title_and_part(raw_name, raw_caption=raw_caption, file_name=file_name)
+    base_name = ext.get("base_title") or raw_name
+    is_serial = 1 if (parsed["is_serial"] or ext.get("is_serial")) else 0
+    ep_num = parsed["episode_num"] if parsed["episode_num"] > 1 else ext.get("part_num", 1)
+    name = base_name if is_serial else raw_name
 
     # Agar Arxiv kanaldagi postda ma'lumotlar to'liq yozilmagan bo'lsa, Arxiv kanalning o'zida ham postni avtomatik to'ldirib qo'yamiz!
     if msg_id and auto_edit_archive and ai_service.is_archive_caption_incomplete(raw_caption):
@@ -682,31 +724,45 @@ async def process_archive_item(
         except Exception as e:
             logging.debug(f"Arxiv post tahrirlash ({msg_id}): {e}")
 
-    # 1. Agar bu SERIAL bo'lsa, avval shu nomli serial bazada bormi tekshiramiz
+    # 1. Agar bu SERIAL bo'lsa, avval shu nomli serial bazada bormi tekshiramiz (dublikatsiz!)
     if is_serial:
-        existing_serial = await db.find_movie_by_exact_name(name)
+        existing_serial = await db.find_existing_movie_duplicate(base_name, file_id)
         if existing_serial:
             code = existing_serial["code"]
-            await db.add_episode(code, ep_num, file_id, f"{ep_num}-qism")
+            existing_eps = await db.get_episodes(code)
+            existing_fids = {e.get("file_id") for e in existing_eps}
+            if file_id in existing_fids:
+                if msg_id:
+                    await db.mark_archive_msg_imported(msg_id, code)
+                return {
+                    "status": "already_exists",
+                    "code": code,
+                    "name": existing_serial.get("name") or base_name,
+                    "ep_num": ep_num,
+                    "posted": False
+                }
+            # Agar aynan shu ep_num allaqachon band bo'lsa, keyingi bo'sh qism raqamini beramiz
+            used_nums = {int(e.get("episode_num") or 0) for e in existing_eps}
+            final_ep = ep_num if ep_num not in used_nums else (max(used_nums, default=0) + 1)
+            await db.add_episode(code, final_ep, file_id, f"{final_ep}-qism")
             if msg_id:
                 await db.mark_archive_msg_imported(msg_id, code)
+            asyncio.create_task(export_webapp_catalog_json())
             return {
                 "status": "episode_added",
                 "code": code,
-                "name": name,
-                "ep_num": ep_num,
+                "name": existing_serial.get("name") or base_name,
+                "ep_num": final_ep,
                 "posted": False
             }
 
-    # 2. Aynan shu file_id yoki aynan shu nomli kino avval yuklangan bo'lsa, ma'lumotlarini yangilab dublikat qilmaymiz
-    existing_file = await db.find_movie_by_file_id(file_id)
-    if not existing_file and not is_serial:
-        existing_file = await db.find_movie_by_exact_name(name)
+    # 2. Aynan shu file_id yoki aynan shu nomli kino avval yuklangan bo'lsa — MUTLAQ dublikat qilmaymiz!
+    existing_file = await db.find_existing_movie_duplicate(name, file_id)
     if existing_file:
         code = existing_file["code"]
         await db.update_movie_full_metadata(
             code=code,
-            name=name,
+            name=existing_file.get("name") or name,
             genre=parsed["genre"],
             year=parsed["year"],
             country=parsed["country"],
@@ -716,7 +772,7 @@ async def process_archive_item(
         )
         if not existing_file.get("photo_id"):
             poster_url = await ai_service.find_movie_poster_tmdb(
-                name=name,
+                name=existing_file.get("name") or name,
                 year=str(parsed.get("year", "")),
                 is_serial=bool(is_serial),
                 force=True
@@ -725,10 +781,11 @@ async def process_archive_item(
                 await db.update_movie_photo(code, poster_url)
         if msg_id:
             await db.mark_archive_msg_imported(msg_id, code)
+        asyncio.create_task(export_webapp_catalog_json())
         return {
             "status": "already_exists",
             "code": code,
-            "name": name,
+            "name": existing_file.get("name") or name,
             "ep_num": ep_num,
             "posted": False
         }
@@ -972,6 +1029,7 @@ async def handle_archive_channel_new_post(message: Message):
     if not v_obj:
         return
     file_id = v_obj.file_id
+    file_unique_id = getattr(v_obj, "file_unique_id", "") or ""
     file_name = getattr(v_obj, "file_name", "") or ""
     video_height = getattr(v_obj, "height", 0) or 0
     raw_caption = message.caption or ""
@@ -988,8 +1046,9 @@ async def handle_archive_channel_new_post(message: Message):
     m_name = parsed["name"]
     ext = ai_service.extract_base_title_and_part(m_name, raw_caption=raw_caption, file_name=file_name)
     base_t = ext.get("base_title") or m_name
+    final_season = int(ext.get("season_num") or parsed.get("season_num") or 1)
     final_part = parsed["episode_num"] if parsed["episode_num"] > 1 else ext.get("part_num", 1)
-    final_is_serial = 1 if (parsed["is_serial"] or ext.get("is_serial") or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
+    final_is_serial = 1 if (parsed["is_serial"] or ext.get("is_serial") or final_season > 1 or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
 
     await db.upsert_archive_catalog_item(
         msg_id=message.message_id,
@@ -1006,22 +1065,31 @@ async def handle_archive_channel_new_post(message: Message):
         is_serial=final_is_serial,
         part_num=final_part,
         is_imported=0,
-        imported_code=""
+        imported_code="",
+        file_unique_id=file_unique_id,
+        season_num=final_season
     )
+    await db.auto_promote_archive_serials()
 
-    # Agar ushbu serial allaqachon movies bazasida mavjud bo'lsa, yangi qismini avto-ulaymiz
+    # Agar ushbu serial allaqachon movies bazasida mavjud bo'lsa, yangi qismini dublikatsiz avto-ulaymiz
     auto_grab = await db.get_setting("auto_grab_archive", "1")
     if auto_grab == "1" and final_is_serial:
-        existing_serial = await db.find_movie_by_exact_name(base_t)
+        existing_serial = await db.find_existing_movie_duplicate(base_t, file_id)
         if existing_serial:
             code = existing_serial["code"]
-            await db.add_episode(code, final_part, file_id, f"{final_part}-qism")
+            existing_eps = await db.get_episodes(code)
+            existing_fids = {e.get("file_id") for e in existing_eps}
+            if file_id not in existing_fids:
+                used_nums = {int(e.get("episode_num") or 0) for e in existing_eps}
+                ep_slot = final_part if final_part not in used_nums else (max(used_nums, default=0) + 1)
+                ep_label = f"{final_season}-fasl {final_part}-qism" if final_season > 1 else f"{ep_slot}-qism"
+                await db.add_episode(code, ep_slot, file_id, ep_label)
+                logging.info(f"Arxiv kanaldan mavjud serialga yangi qism ulandi: #{code} {base_t} ({ep_label})")
             await db.mark_archive_catalog_imported([message.message_id], code)
-            await export_webapp_catalog_json()
-            logging.info(f"Arxiv kanaldan mavjud serialga yangi qism ulandi: #{code} {base_t} ({final_part}-qism)")
+            asyncio.create_task(export_webapp_catalog_json())
             return
 
-    logging.info(f"Arxiv katalogga yangi post indekslandi: msg_id={message.message_id} | {base_t} (qism={final_part}, serial={final_is_serial})")
+    logging.info(f"Arxiv katalogga yangi post indekslandi: msg_id={message.message_id} | {base_t} (S{final_season}E{final_part}, serial={final_is_serial})")
 
 
 # ===================== SUPER ADMIN, ADMIN & MODERATOR: BAZADAN (ARXIVDAN) KINO VA SERIAL YUKLASH =====================
@@ -1178,156 +1246,186 @@ async def process_load_movies_count(message: Message, state: FSMContext):
     if not (message.text or "").strip().isdigit():
         await message.answer("❌ Faqat raqam kiriting (masalan: <code>10</code>)!", reply_markup=panel_kb, parse_mode="HTML")
         return
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ <b>Arxivdan yuklash/skanerlash jarayoni hozir ishlamoqda!</b>\nTugashini kuting — bot boshqa foydalanuvchilarga uzluksiz javob bermoqda.", reply_markup=panel_kb, parse_mode="HTML")
+        return
     target_count = max(1, min(int(message.text.strip()), 100))
-    await execute_archive_grouped_movies_load(message, target_count, probe_chat_id=message.from_user.id)
+    asyncio.create_task(execute_archive_grouped_movies_load(message, target_count, probe_chat_id=message.from_user.id))
 
 
 async def execute_archive_grouped_movies_load(message: Message, target_count: int, probe_chat_id: int):
     """
-    Bazadan (Arxivdan) N ta kinoni eng boshidan guruhlab yuklaydi:
+    Bazadan (Arxivdan) N ta kinoni eng boshidan guruhlab, DUBLIKATSIZ yuklaydi:
     - Seriallarni (Merlin, Envel va b.) skip qiladi!
     - Ko'p qismli kinolarni 1, 2, 3... tartibda bitta kino kodiga jamlaydi!
-    - Har bir kinoga TMDB / KinopoiskAPI.uz / OMDb poster oladi va @movieee_land kanaliga chiroyli post yuboradi!
+    - Har bir kinoni avval bazadan tekshiradi (dublikat bo'lsa qayta qo'shmaydi!).
+    - Har bir kinoga TMDB / KinopoiskAPI.uz / OMDb aniq poster oladi va @movieee_land kanaliga post yuboradi!
     """
-    arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
-    groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
-    if not groups:
-        try:
-            await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
-            groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
-        except Exception:
-            pass
-    if not groups:
-        await message.answer(
-            "ℹ️ <b>Arxivdagi barcha kinolar allaqachon yuklab bo'lingan!</b>\n"
-            "<i>(Agar boshidan yuklamoqchi bo'lsangiz, kinolar bazasini tozalang).</i>",
-            parse_mode="HTML"
-        )
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ <b>Arxiv jarayoni hozir band!</b> Tugashini kuting.", parse_mode="HTML")
         return
 
-    status_msg = await message.answer(
-        f"⏳ <b>Bazadan {len(groups)} ta kino yuklanmoqda...</b>\n"
-        f"<i>(Qismlar 1, 2, 3 tartibda birlashtirilmoqda, TMDB poster olinmoqda va @movieee_land ga post chiqarilmoqda)</i>",
-        parse_mode="HTML"
-    )
-
-    loaded_movies = 0
-    total_parts_linked = 0
-    posted_cnt = 0
-    summary_lines = []
-    failed_lines = []
-
-    for idx, grp in enumerate(groups, 1):
-        items = grp["items"]
-        first_it = items[0]
-        movie_title = grp["base_title"] if len(items) > 1 else (first_it.get("parsed_name") or grp["base_title"])
-        try:
-            await status_msg.edit_text(
-                f"📥 <b>Bazadan kinolar yuklanmoqda: {idx} / {len(groups)}</b>\n"
-                f"🎬 Hozir: <b>{movie_title}</b>\n"
-                f"✅ Yuklandi: <b>{loaded_movies} ta</b> | 📢 Kanalga post: <b>{posted_cnt} ta</b>",
+    async with _ARCHIVE_JOB_LOCK:
+        arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
+        groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
+        if not groups:
+            try:
+                await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
+                groups = await db.get_unimported_archive_movies_grouped(limit_groups=target_count)
+            except Exception:
+                pass
+        if not groups:
+            await message.answer(
+                "ℹ️ <b>Arxivdagi barcha kinolar allaqachon yuklab bo'lingan!</b>\n"
+                "<i>(Agar boshidan yuklamoqchi bo'lsangiz, kinolar bazasini tozalang).</i>",
                 parse_mode="HTML"
             )
-        except Exception:
-            pass
+            return
 
-        # Har bir qismning file_id sini olamiz (1, 2, 3... tartibda)
-        resolved_parts = []
-        for ep_idx, it in enumerate(items, 1):
-            fid = await _resolve_catalog_file_id(it, arch_ch, probe_chat_id)
-            if fid:
-                resolved_parts.append({
-                    "ep_num": ep_idx,
-                    "file_id": fid,
-                    "title": it.get("parsed_name") or f"{ep_idx}-qism",
-                    "msg_id": it["msg_id"]
-                })
+        status_msg = await message.answer(
+            f"⏳ <b>Bazadan {len(groups)} ta kino fon rejimida yuklanmoqda...</b>\n"
+            f"<i>(Dublikatlar 100% filtrlanadi, qismlar 1, 2, 3 tartibda birlashtiriladi, aniq HD poster olinadi)</i>",
+            parse_mode="HTML"
+        )
 
-        if not resolved_parts:
-            failed_lines.append(f"⚠️ {movie_title} — video file_id olinmadi")
-            continue
+        loaded_movies = 0
+        skipped_dups = 0
+        total_parts_linked = 0
+        posted_cnt = 0
+        summary_lines = []
+        failed_lines = []
 
-        try:
-            code = await db.get_next_auto_code()
-            meta = await _archive_clean_meta(first_it, movie_title, is_serial=False)
-            year, country, genre, quality = meta["year"], meta["country"], meta["genre"], meta["quality"]
-
-            desc = await _safe_desc(movie_title, genre, year, country, is_serial=False)
-            poster_url = await _safe_poster(movie_title, year, is_serial=False)
-        except Exception as e:
-            logging.exception(f"Bazadan kino yuklash (tayyorlash) xatosi: {movie_title}")
-            failed_lines.append(f"⚠️ {movie_title} — {str(e)[:60]}")
-            continue
-
-        try:
-            await db.add_movie(
-                code=code,
-                name=movie_title,
-                file_id=resolved_parts[0]["file_id"],
-                genre=genre,
-                year=year,
-                country=country,
-                language="O'zbek tilida",
-                quality=quality,
-                imdb="8.4",
-                photo_id=poster_url,
-                caption=desc,
-                is_serial=0,
-                first_ep_num=1
-            )
-
-            # Agar kinoning 2 va undan ortiq qismi bo'lsa, barcha qismlarni 1, 2, 3... qilib episodes jadvaliga yozamiz
-            if len(resolved_parts) > 1:
-                for rp in resolved_parts:
-                    await db.add_episode(code, rp["ep_num"], rp["file_id"], f"{rp['ep_num']}-qism")
-                # is_serial ustunini 0 qilib qoldiramiz (chunki bu ko'p qismli kino, serial emas!)
-                conn_db = await db.get_db_conn()
-                try:
-                    await conn_db.execute("UPDATE movies SET is_serial = 0 WHERE code = ?", (str(code),))
-                    await conn_db.commit()
-                finally:
-                    await conn_db.close()
-                total_parts_linked += len(resolved_parts)
-
-            await db.mark_archive_catalog_imported(grp["all_msg_ids"], code)
-            loaded_movies += 1
-        except Exception as e:
-            logging.exception(f"Bazadan kino yuklash (bazaga yozish) xatosi: {movie_title}")
-            failed_lines.append(f"⚠️ {movie_title} — {str(e)[:60]}")
-            continue
-
-        movie_obj = await db.get_movie(code, increment_view=False)
-        if movie_obj:
+        for idx, grp in enumerate(groups, 1):
+            items = grp["items"]
+            first_it = items[0]
+            movie_title = grp["base_title"] if len(items) > 1 else (first_it.get("parsed_name") or grp["base_title"])
             try:
-                ok_post = await publish_movie_to_channel(movie_obj)
+                await status_msg.edit_text(
+                    f"📥 <b>Bazadan kinolar yuklanmoqda: {idx} / {len(groups)}</b>\n"
+                    f"🎬 Hozir: <b>{html.escape(movie_title)}</b>\n"
+                    f"✅ Yuklandi: <b>{loaded_movies} ta</b> | 🛡 Dublikat skip: <b>{skipped_dups} ta</b> | 📢 Post: <b>{posted_cnt} ta</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+            # Har bir qismning file_id sini olamiz (1, 2, 3... tartibda, takroriy file_id larni filtrlab)
+            resolved_parts = []
+            seen_fids = set()
+            for ep_idx, it in enumerate(items, 1):
+                fid = await _resolve_catalog_file_id(it, arch_ch, probe_chat_id)
+                if fid and fid not in seen_fids:
+                    seen_fids.add(fid)
+                    resolved_parts.append({
+                        "ep_num": len(resolved_parts) + 1,
+                        "file_id": fid,
+                        "title": it.get("parsed_name") or f"{len(resolved_parts) + 1}-qism",
+                        "msg_id": it["msg_id"]
+                    })
+
+            if not resolved_parts:
+                failed_lines.append(f"⚠️ {html.escape(movie_title)} — video file_id olinmadi")
+                continue
+
+            # DUBLIKAT TEKSHIRUVI: bazada shu nomli yoki shu file_id li kino bo'lsa QAYTA QO'SHMAYMIZ!
+            existing_dup = await db.find_existing_movie_duplicate(movie_title, resolved_parts[0]["file_id"])
+            if existing_dup:
+                dup_code = str(existing_dup["code"])
+                if len(resolved_parts) > 1:
+                    ex_eps = await db.get_episodes(dup_code)
+                    ex_fids = {e.get("file_id") for e in ex_eps}
+                    used_n = {int(e.get("episode_num") or 0) for e in ex_eps}
+                    for rp in resolved_parts:
+                        if rp["file_id"] not in ex_fids:
+                            slot = rp["ep_num"] if rp["ep_num"] not in used_n else (max(used_n, default=0) + 1)
+                            used_n.add(slot)
+                            await db.add_episode(dup_code, slot, rp["file_id"], f"{slot}-qism")
+                            total_parts_linked += 1
+                await db.mark_archive_catalog_imported(grp["all_msg_ids"], dup_code)
+                skipped_dups += 1
+                continue
+
+            try:
+                code = await db.get_next_auto_code()
+                meta = await _archive_clean_meta(first_it, movie_title, is_serial=False)
+                year, country, genre, quality = meta["year"], meta["country"], meta["genre"], meta["quality"]
+
+                desc = await _safe_desc(movie_title, genre, year, country, is_serial=False)
+                poster_url = await _safe_poster(movie_title, year, is_serial=False)
             except Exception as e:
-                logging.warning(f"Kanalga post xatosi (#{code}): {e}")
-                ok_post = False
-            if ok_post:
-                posted_cnt += 1
+                logging.exception(f"Bazadan kino yuklash (tayyorlash) xatosi: {movie_title}")
+                failed_lines.append(f"⚠️ {html.escape(movie_title)} — {str(e)[:60]}")
+                continue
 
-        parts_badge = f" ({len(resolved_parts)} qism: 1..{len(resolved_parts)})" if len(resolved_parts) > 1 else ""
-        summary_lines.append(f"🎬 <b>#{code}</b> — {movie_title} ({year}){parts_badge}")
-        await asyncio.sleep(0.5)
+            try:
+                await db.add_movie(
+                    code=code,
+                    name=movie_title,
+                    file_id=resolved_parts[0]["file_id"],
+                    genre=genre,
+                    year=year,
+                    country=country,
+                    language="O'zbek tilida",
+                    quality=quality,
+                    imdb="8.4",
+                    photo_id=poster_url,
+                    caption=desc,
+                    is_serial=0,
+                    first_ep_num=1
+                )
 
-    await export_webapp_catalog_json()
-    role = await db.get_user_role(probe_chat_id)
-    perms = await db.get_user_permissions(probe_chat_id)
-    panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
+                # Agar kinoning 2 va undan ortiq qismi bo'lsa, barcha qismlarni 1, 2, 3... qilib episodes jadvaliga yozamiz
+                if len(resolved_parts) > 1:
+                    for rp in resolved_parts:
+                        await db.add_episode(code, rp["ep_num"], rp["file_id"], f"{rp['ep_num']}-qism")
+                    conn_db = await db.get_db_conn()
+                    try:
+                        await conn_db.execute("UPDATE movies SET is_serial = 0 WHERE code = ?", (str(code),))
+                        await conn_db.commit()
+                    finally:
+                        await conn_db.close()
+                    total_parts_linked += len(resolved_parts)
 
-    lines_txt = "\n".join(summary_lines[:30]) or "—"
-    fail_txt = ("\n\n❗ <b>Yuklanmaganlar:</b>\n" + "\n".join(failed_lines[:15])) if failed_lines else ""
-    await status_msg.edit_text(
-        f"✅ <b>BAZADAN KINO YUKLASH YAKUNLANDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🎬 <b>Yuklangan kinolar:</b> {loaded_movies} ta\n"
-        f"🎞 <b>Birlashtirilgan kino qismlari:</b> {total_parts_linked} ta\n"
-        f"📢 <b>Kanalga yuborilgan postlar:</b> {posted_cnt} ta\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📋 <b>Ro'yxat:</b>\n{lines_txt}{fail_txt}",
-        parse_mode="HTML"
-    )
-    await message.answer("✅ Boshqaruv paneli:", reply_markup=panel_kb)
+                await db.mark_archive_catalog_imported(grp["all_msg_ids"], code)
+                loaded_movies += 1
+            except Exception as e:
+                logging.exception(f"Bazadan kino yuklash (bazaga yozish) xatosi: {movie_title}")
+                failed_lines.append(f"⚠️ {html.escape(movie_title)} — {str(e)[:60]}")
+                continue
+
+            movie_obj = await db.get_movie(code, increment_view=False)
+            if movie_obj:
+                try:
+                    ok_post = await publish_movie_to_channel(movie_obj)
+                except Exception as e:
+                    logging.warning(f"Kanalga post xatosi (#{code}): {e}")
+                    ok_post = False
+                if ok_post:
+                    posted_cnt += 1
+
+            parts_badge = f" ({len(resolved_parts)} qism: 1..{len(resolved_parts)})" if len(resolved_parts) > 1 else ""
+            summary_lines.append(f"🎬 <b>#{code}</b> — {html.escape(movie_title)} ({year}){parts_badge}")
+            await asyncio.sleep(0.35)
+
+        asyncio.create_task(export_webapp_catalog_json())
+        role = await db.get_user_role(probe_chat_id)
+        perms = await db.get_user_permissions(probe_chat_id)
+        panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
+
+        lines_txt = "\n".join(summary_lines[:30]) or "—"
+        fail_txt = ("\n\n❗ <b>Yuklanmaganlar:</b>\n" + "\n".join(failed_lines[:15])) if failed_lines else ""
+        await status_msg.edit_text(
+            f"✅ <b>BAZADAN KINO YUKLASH YAKUNLANDI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🎬 <b>Yuklangan kinolar:</b> {loaded_movies} ta\n"
+            f"🛡 <b>Bloklangan dublikatlar:</b> {skipped_dups} ta\n"
+            f"🎞 <b>Birlashtirilgan kino qismlari:</b> {total_parts_linked} ta\n"
+            f"📢 <b>Kanalga yuborilgan postlar:</b> {posted_cnt} ta\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📋 <b>Ro'yxat:</b>\n{lines_txt}{fail_txt}",
+            parse_mode="HTML"
+        )
+        await message.answer("✅ Boshqaruv paneli:", reply_markup=panel_kb)
 
 
 @dp.message(F.text == "📺 Bazadan Serial yuklash")
@@ -1377,123 +1475,161 @@ async def process_load_serials_count(message: Message, state: FSMContext):
     if not (message.text or "").strip().isdigit():
         await message.answer("❌ Faqat raqam kiriting (masalan: <code>1</code>)!", reply_markup=panel_kb, parse_mode="HTML")
         return
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ <b>Arxivdan yuklash/skanerlash jarayoni hozir ishlamoqda!</b> Tugashini kuting.", reply_markup=panel_kb, parse_mode="HTML")
+        return
     target_count = max(1, min(int(message.text.strip()), 20))
-    await execute_archive_grouped_serials_load(message, target_count, probe_chat_id=message.from_user.id)
+    asyncio.create_task(execute_archive_grouped_serials_load(message, target_count, probe_chat_id=message.from_user.id))
 
 
 async def execute_archive_grouped_serials_load(message: Message, target_count: int, probe_chat_id: int):
-    arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
-    groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
-    if not groups:
-        try:
-            await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
-            groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
-        except Exception:
-            pass
-    if not groups:
-        await message.answer("ℹ️ <b>Arxivdagi barcha seriallar allaqachon yuklab bo'lingan!</b>", parse_mode="HTML")
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ <b>Arxiv jarayoni hozir band!</b> Tugashini kuting.", parse_mode="HTML")
         return
 
-    status_msg = await message.answer(
-        f"⏳ <b>Bazadan {len(groups)} ta serial va uning barcha qismlari tahlil qilinib yuklanmoqda...</b>",
-        parse_mode="HTML"
-    )
+    async with _ARCHIVE_JOB_LOCK:
+        arch_ch = int(await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID))
+        groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
+        if not groups:
+            try:
+                await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id)
+                groups = await db.get_unimported_archive_serials_grouped(limit_groups=target_count)
+            except Exception:
+                pass
+        if not groups:
+            await message.answer("ℹ️ <b>Arxivdagi barcha seriallar allaqachon yuklab bo'lingan!</b>", parse_mode="HTML")
+            return
 
-    loaded_serials = 0
-    total_eps = 0
-    posted_cnt = 0
-    summary_lines = []
-
-    for grp in groups:
-        items = grp["items"]
-        first_it = items[0]
-        serial_title = grp["base_title"]
-
-        resolved_eps = []
-        for idx_ep, it in enumerate(items, 1):
-            fid = await _resolve_catalog_file_id(it, arch_ch, probe_chat_id)
-            if fid:
-                ep_n = it.get("part_num") or idx_ep
-                resolved_eps.append({
-                    "ep_num": ep_n,
-                    "file_id": fid,
-                    "msg_id": it["msg_id"]
-                })
-            if idx_ep % 10 == 0:
-                try:
-                    await status_msg.edit_text(
-                        f"📺 <b>«{serial_title}» seriali qismlari yig'ilmoqda: {idx_ep} / {len(items)} qism...</b>",
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
-
-        if not resolved_eps:
-            continue
-
-        # Serial qismlarini tartiblaymiz va ketma-ket 1, 2, 3... N qilib qat'iy raqamlaymiz
-        resolved_eps.sort(key=lambda x: (x["ep_num"], x["msg_id"]))
-        for seq_idx, ep in enumerate(resolved_eps, 1):
-            ep["ep_num"] = seq_idx
-
-        code = await db.get_next_auto_code()
-        meta = await _archive_clean_meta(first_it, serial_title, is_serial=True)
-        year, country, genre, quality = meta["year"], meta["country"], meta["genre"], meta["quality"]
-
-        desc = await _safe_desc(serial_title, genre, year, country, is_serial=True)
-        poster_url = await _safe_poster(serial_title, year, is_serial=True)
-
-        await db.add_movie(
-            code=code,
-            name=serial_title,
-            file_id=resolved_eps[0]["file_id"],
-            genre=genre,
-            year=year,
-            country=country,
-            language="O'zbek tilida",
-            quality=quality,
-            imdb="8.6",
-            photo_id=poster_url,
-            caption=desc,
-            is_serial=1,
-            first_ep_num=resolved_eps[0]["ep_num"]
+        status_msg = await message.answer(
+            f"⏳ <b>Bazadan {len(groups)} ta serial va uning barcha fasl/qismlari tahlil qilinib yuklanmoqda...</b>",
+            parse_mode="HTML"
         )
 
-        for ep in resolved_eps:
-            await db.add_episode(code, ep["ep_num"], ep["file_id"], f"{ep['ep_num']}-qism")
+        loaded_serials = 0
+        updated_existing = 0
+        total_eps = 0
+        posted_cnt = 0
+        summary_lines = []
 
-        await db.mark_archive_catalog_imported(grp["all_msg_ids"], code)
-        loaded_serials += 1
-        total_eps += len(resolved_eps)
+        for grp in groups:
+            items = grp["items"]
+            first_it = items[0]
+            serial_title = grp["base_title"]
 
-        movie_obj = await db.get_movie(code, increment_view=False)
-        if movie_obj:
-            try:
-                ok_post = await publish_movie_to_channel(movie_obj)
-            except Exception as e:
-                logging.warning(f"Kanalga serial post xatosi (#{code}): {e}")
-                ok_post = False
-            if ok_post:
-                posted_cnt += 1
+            resolved_eps = []
+            seen_fids = set()
+            for idx_ep, it in enumerate(items, 1):
+                fid = await _resolve_catalog_file_id(it, arch_ch, probe_chat_id)
+                if fid and fid not in seen_fids:
+                    seen_fids.add(fid)
+                    s_n = int(it.get("season_num") or 1)
+                    ep_n = int(it.get("part_num") or idx_ep)
+                    resolved_eps.append({
+                        "season_num": s_n,
+                        "orig_ep": ep_n,
+                        "ep_num": ep_n,
+                        "file_id": fid,
+                        "msg_id": it["msg_id"]
+                    })
+                if idx_ep % 10 == 0:
+                    try:
+                        await status_msg.edit_text(
+                            f"📺 <b>«{html.escape(serial_title)}» seriali qismlari yig'ilmoqda: {idx_ep} / {len(items)} qism...</b>",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
 
-        summary_lines.append(f"📺 <b>#{code}</b> — {serial_title} ({len(resolved_eps)} qism jamlandi)")
+            if not resolved_eps:
+                continue
 
-    await export_webapp_catalog_json()
-    role = await db.get_user_role(probe_chat_id)
-    perms = await db.get_user_permissions(probe_chat_id)
-    panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
+            # Ko'p faslli va ko'p qismli seriallarni (season_num, orig_ep, msg_id) bo'yicha qat'iy tartiblaymiz!
+            resolved_eps.sort(key=lambda x: (x["season_num"], x["orig_ep"], x["msg_id"]))
+            multi_season = len({e["season_num"] for e in resolved_eps}) > 1
+            for seq_idx, ep in enumerate(resolved_eps, 1):
+                ep["ep_num"] = seq_idx
+                ep["label"] = f"{ep['season_num']}-fasl {ep['orig_ep']}-qism" if multi_season else f"{seq_idx}-qism"
 
-    await status_msg.edit_text(
-        f"✅ <b>BAZADAN SERIAL YUKLASH YAKUNLANDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📺 <b>Yuklangan seriallar:</b> {loaded_serials} ta\n"
-        f"🎞 <b>Birlashtirilgan jami qismlar:</b> {total_eps} ta\n"
-        f"📢 <b>@movieee_land kanaliga yuborilgan postlar:</b> {posted_cnt} ta\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📋 <b>Ro'yxat:</b>\n" + "\n".join(summary_lines),
-        parse_mode="HTML"
-    )
-    await message.answer("✅ Boshqaruv paneli:", reply_markup=panel_kb)
+            # DUBLIKAT TEKSHIRUVI: agar bu serial allaqachon movies bazasida bo'lsa, faqat yetishmayotgan qismlarni ulaymiz!
+            existing_ser = await db.find_existing_movie_duplicate(serial_title, resolved_eps[0]["file_id"])
+            if existing_ser:
+                code = str(existing_ser["code"])
+                ex_eps = await db.get_episodes(code)
+                ex_fids = {e.get("file_id") for e in ex_eps}
+                used_nums = {int(e.get("episode_num") or 0) for e in ex_eps}
+                added_here = 0
+                for ep in resolved_eps:
+                    if ep["file_id"] in ex_fids:
+                        continue
+                    slot = ep["ep_num"] if ep["ep_num"] not in used_nums else (max(used_nums, default=0) + 1)
+                    used_nums.add(slot)
+                    await db.add_episode(code, slot, ep["file_id"], ep["label"])
+                    added_here += 1
+                    total_eps += 1
+                await db.mark_archive_catalog_imported(grp["all_msg_ids"], code)
+                updated_existing += 1
+                summary_lines.append(f"🔄 <b>#{code}</b> — {html.escape(serial_title)} (mavjud serialga +{added_here} yangi qism ulandi)")
+                continue
+
+            code = await db.get_next_auto_code()
+            meta = await _archive_clean_meta(first_it, serial_title, is_serial=True)
+            year, country, genre, quality = meta["year"], meta["country"], meta["genre"], meta["quality"]
+
+            desc = await _safe_desc(serial_title, genre, year, country, is_serial=True)
+            poster_url = await _safe_poster(serial_title, year, is_serial=True)
+
+            await db.add_movie(
+                code=code,
+                name=serial_title,
+                file_id=resolved_eps[0]["file_id"],
+                genre=genre,
+                year=year,
+                country=country,
+                language="O'zbek tilida",
+                quality=quality,
+                imdb="8.6",
+                photo_id=poster_url,
+                caption=desc,
+                is_serial=1,
+                first_ep_num=resolved_eps[0]["ep_num"]
+            )
+
+            for ep in resolved_eps:
+                await db.add_episode(code, ep["ep_num"], ep["file_id"], ep["label"])
+
+            await db.mark_archive_catalog_imported(grp["all_msg_ids"], code)
+            loaded_serials += 1
+            total_eps += len(resolved_eps)
+
+            movie_obj = await db.get_movie(code, increment_view=False)
+            if movie_obj:
+                try:
+                    ok_post = await publish_movie_to_channel(movie_obj)
+                except Exception as e:
+                    logging.warning(f"Kanalga serial post xatosi (#{code}): {e}")
+                    ok_post = False
+                if ok_post:
+                    posted_cnt += 1
+
+            summary_lines.append(f"📺 <b>#{code}</b> — {html.escape(serial_title)} ({len(resolved_eps)} qism jamlandi)")
+
+        asyncio.create_task(export_webapp_catalog_json())
+        role = await db.get_user_role(probe_chat_id)
+        perms = await db.get_user_permissions(probe_chat_id)
+        panel_kb = kb.super_admin_keyboard() if role == "superadmin" else kb.staff_panel_keyboard(perms)
+
+        await status_msg.edit_text(
+            f"✅ <b>BAZADAN SERIAL YUKLASH YAKUNLANDI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📺 <b>Yangi yuklangan seriallar:</b> {loaded_serials} ta\n"
+            f"🔄 <b>To'ldirilgan mavjud seriallar:</b> {updated_existing} ta\n"
+            f"🎞 <b>Birlashtirilgan jami qismlar:</b> {total_eps} ta\n"
+            f"📢 <b>@movieee_land kanaliga yuborilgan postlar:</b> {posted_cnt} ta\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📋 <b>Ro'yxat:</b>\n" + ("\n".join(summary_lines) or "—"),
+            parse_mode="HTML"
+        )
+        await message.answer("✅ Boshqaruv paneli:", reply_markup=panel_kb)
 
 
 # ===================== SUPER ADMIN EKSKLYUZIV: KO'RISH QO'SHISH VA KINOLAR BAZASINI TOZALASH =====================
@@ -1628,11 +1764,12 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
     last_db_id = await db.get_max_archive_catalog_msg_id()
     if full_rescan or last_db_id == 0:
         existing_mids = await db.get_all_catalog_msg_ids()
-        missing_mids = [m for m in range(50, max_msg_id + 1) if m not in existing_mids]
+        missing_mids = [m for m in range(1, max_msg_id + 1) if m not in existing_mids]
     else:
         missing_mids = list(range(last_db_id + 1, max_msg_id + 1))
 
     if not missing_mids:
+        await db.auto_promote_archive_serials()
         return {
             "ok": True,
             "checked": 0,
@@ -1647,7 +1784,7 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
     new_movies = 0
     new_serials = 0
     new_added = 0
-    batch_size = 10
+    batch_size = 4
     last_update_time = time.monotonic()
 
     async def _probe_single(mid):
@@ -1664,12 +1801,13 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
                 fn = getattr(v_obj, "file_name", "") or ""
                 vh = getattr(v_obj, "height", 0) or 0
                 fid = v_obj.file_id if v_obj else ""
+                fuid = getattr(v_obj, "file_unique_id", "") or ""
                 try:
                     await bot.delete_message(chat_id=target_probe, message_id=fwd.message_id)
                 except Exception:
                     pass
                 if fid:
-                    return (mid, fid, fn, vh, raw_cap)
+                    return (mid, fid, fuid, fn, vh, raw_cap)
                 return None
             except TelegramRetryAfter as e:
                 await asyncio.sleep(e.retry_after + 0.5)
@@ -1686,9 +1824,9 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
         for res in results:
             if not res or isinstance(res, Exception):
                 continue
-            mid, file_id, file_name, v_height, raw_caption = res
+            mid, file_id, file_unique_id, file_name, v_height, raw_caption = res
 
-            if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz")):
+            if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz", ".json")):
                 continue
 
             parsed = ai_service.parse_archive_caption(
@@ -1702,8 +1840,9 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
             ep_n = parsed["episode_num"]
             ext = ai_service.extract_base_title_and_part(m_name, raw_caption=raw_caption, file_name=file_name)
             base_t = ext.get("base_title") or m_name
+            final_season = int(ext.get("season_num") or parsed.get("season_num") or 1)
             final_part = ep_n if ep_n > 1 else ext.get("part_num", 1)
-            final_is_serial = 1 if (is_ser or ext.get("is_serial") or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
+            final_is_serial = 1 if (is_ser or ext.get("is_serial") or final_season > 1 or "serial" in raw_caption.lower() or "fasl" in raw_caption.lower()) else 0
 
             await db.upsert_archive_catalog_item(
                 msg_id=mid,
@@ -1720,7 +1859,9 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
                 is_serial=final_is_serial,
                 part_num=final_part,
                 is_imported=0,
-                imported_code=""
+                imported_code="",
+                file_unique_id=file_unique_id,
+                season_num=final_season
             )
             new_added += 1
             if final_is_serial:
@@ -1746,8 +1887,9 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
             except Exception:
                 pass
 
-        await asyncio.sleep(0.08)
+        await asyncio.sleep(0.25)
 
+    await db.auto_promote_archive_serials()
     return {
         "ok": True,
         "checked": checked,
@@ -1792,47 +1934,64 @@ async def archive_auto_scanner_worker():
             logging.warning(f"archive_auto_scanner_worker xatosi: {e}")
 
 
+async def _run_archive_scan_job(probe_chat_id: int, status_msg: Message, full_rescan: bool = False):
+    if _ARCHIVE_JOB_LOCK.locked():
+        try:
+            await status_msg.edit_text("⏳ <b>Arxiv skanerlash yoki yuklash jarayoni hozir ishlamoqda!</b> Tugashini kuting.", parse_mode="HTML")
+        except Exception:
+            pass
+        return
+    async with _ARCHIVE_JOB_LOCK:
+        res = await scan_archive_channel_to_catalog(probe_chat_id=probe_chat_id, status_msg=status_msg, full_rescan=full_rescan)
+        st = await db.get_archive_catalog_stats()
+        if not res.get("ok"):
+            try:
+                await status_msg.edit_text(f"❌ Skanerlashda xatolik: {res.get('error')}")
+            except Exception:
+                pass
+            return
+
+        auto_grab = await db.get_setting("auto_grab_archive", "1")
+        auto_post = await db.get_setting("archive_auto_post", "1")
+        arch_ch = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
+        post_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
+
+        report = (
+            f"✅ <b>ARXIV KANAL SKANERLASH YAKUNLANDI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>Tekshirilgan postlar:</b> {res['checked']} ta\n"
+            f"🆕 <b>Yangi katalogga kiritildi:</b> <b>{res['new_added']} ta</b>\n"
+            f"🎬 <b>Yangi kinolar:</b> {res['new_movies']} ta\n"
+            f"📺 <b>Yangi serial qismlari:</b> {res['new_serials']} ta\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🗄 <b>Katalogdagi jami kinolar:</b> {st['total_movie_groups']} ta ({st['total_movie_files']} qism)\n"
+            f"📺 <b>Katalogdagi jami seriallar:</b> {st['total_serial_groups']} ta ({st['total_serial_eps']} qism)\n"
+            f"⏳ <b>Yuklanmagan kinolar:</b> <b>{st['rem_movie_groups']} ta</b>\n"
+            f"⏳ <b>Yuklanmagan seriallar:</b> <b>{st['rem_serial_groups']} ta</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💡 Endi ularni paneldagi <b>«📥 10 ta kino yuklash»</b> yoki <b>«📺 1 ta serial yuklash»</b> orqali bir zumda bazaga yuklashingiz mumkin!"
+        )
+        try:
+            await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.archive_center_inline(auto_grab, auto_post, arch_ch, post_ch))
+        except Exception:
+            pass
+
+
 @dp.callback_query(F.data == "arch_scan_channel")
 async def cb_arch_scan_channel(call: CallbackQuery):
     if not await _can_load_archive(call.from_user.id):
         await call.answer("⛔ Sizda bu funksiya uchun ruxsat yo'q!", show_alert=True)
         return
-
-    await call.answer("📡 Arxiv kanalni skanerlash boshlandi...")
+    if _ARCHIVE_JOB_LOCK.locked():
+        await call.answer("⏳ Arxiv skanerlash/yuklash jarayoni hozir band!", show_alert=True)
+        return
+    await call.answer("📡 Arxiv kanal fon rejimida skanerlanmoqda...")
     status_msg = await call.message.answer(
-        "⏳ <b>Arxiv kanal (-1003124847141) skanerlashga tayyorlanmoqda...</b>\n"
-        "Barcha yangi kinolar va seriallar tahlil qilinadi.",
+        "⏳ <b>Arxiv kanal (-1003124847141) fon rejimida skanerlashga tayyorlanmoqda...</b>\n"
+        "Barcha yangi kinolar va seriallar tahlil qilinadi (bot kechikishsiz ishlayveradi).",
         parse_mode="HTML"
     )
-
-    res = await scan_archive_channel_to_catalog(probe_chat_id=call.from_user.id, status_msg=status_msg)
-    st = await db.get_archive_catalog_stats()
-
-    if not res.get("ok"):
-        await status_msg.edit_text(f"❌ Skanerlashda xatolik: {res.get('error')}")
-        return
-
-    auto_grab = await db.get_setting("auto_grab_archive", "1")
-    auto_post = await db.get_setting("archive_auto_post", "1")
-    arch_ch = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
-    post_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
-
-    report = (
-        f"✅ <b>ARXIV KANAL SKANERLASH YAKUNLANDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Tekshirilgan postlar:</b> {res['checked']} ta\n"
-        f"🆕 <b>Yangi katalogga kiritildi:</b> <b>{res['new_added']} ta</b>\n"
-        f"🎬 <b>Yangi kinolar:</b> {res['new_movies']} ta\n"
-        f"📺 <b>Yangi serial qismlari:</b> {res['new_serials']} ta\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🗄 <b>Katalogdagi jami kinolar:</b> {st['total_movie_groups']} ta ({st['total_movie_files']} qism)\n"
-        f"📺 <b>Katalogdagi jami seriallar:</b> {st['total_serial_groups']} ta ({st['total_serial_eps']} qism)\n"
-        f"⏳ <b>Yuklanmagan kinolar:</b> <b>{st['rem_movie_groups']} ta</b>\n"
-        f"⏳ <b>Yuklanmagan seriallar:</b> <b>{st['rem_serial_groups']} ta</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"💡 Endi ularni paneldagi <b>«📥 10 ta kino yuklash»</b> yoki <b>«📺 1 ta serial yuklash»</b> orqali bir zumda bazaga yuklashingiz mumkin!"
-    )
-    await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.archive_center_inline(auto_grab, auto_post, arch_ch, post_ch))
+    asyncio.create_task(_run_archive_scan_job(call.from_user.id, status_msg))
 
 
 @dp.message(F.text.in_({"📡 Arxivni to'liq skanerlash", "Arxivni skanerlash"}))
@@ -1840,41 +1999,15 @@ async def cmd_scan_archive_channel(message: Message):
     if not await _can_load_archive(message.from_user.id):
         await message.answer("⛔ Sizda bu bo'limga ruxsat yo'q!")
         return
-
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ <b>Arxiv skanerlash yoki yuklash jarayoni hozir ishlamoqda!</b>", parse_mode="HTML")
+        return
     status_msg = await message.answer(
-        "⏳ <b>Arxiv kanal (-1003124847141) skanerlashga tayyorlanmoqda...</b>\n"
+        "⏳ <b>Arxiv kanal (-1003124847141) fon rejimida skanerlashga tayyorlanmoqda...</b>\n"
         "Barcha yangi kinolar va seriallar tahlil qilinadi.",
         parse_mode="HTML"
     )
-
-    res = await scan_archive_channel_to_catalog(probe_chat_id=message.from_user.id, status_msg=status_msg)
-    st = await db.get_archive_catalog_stats()
-
-    if not res.get("ok"):
-        await status_msg.edit_text(f"❌ Skanerlashda xatolik: {res.get('error')}")
-        return
-
-    auto_grab = await db.get_setting("auto_grab_archive", "1")
-    auto_post = await db.get_setting("archive_auto_post", "1")
-    arch_ch = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
-    post_ch = await db.get_setting("auto_post_channel", config.DEFAULT_POST_CHANNEL_ID)
-
-    report = (
-        f"✅ <b>ARXIV KANAL SKANERLASH YAKUNLANDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Tekshirilgan postlar:</b> {res['checked']} ta\n"
-        f"🆕 <b>Yangi katalogga kiritildi:</b> <b>{res['new_added']} ta</b>\n"
-        f"🎬 <b>Yangi kinolar:</b> {res['new_movies']} ta\n"
-        f"📺 <b>Yangi serial qismlari:</b> {res['new_serials']} ta\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🗄 <b>Katalogdagi jami kinolar:</b> {st['total_movie_groups']} ta ({st['total_movie_files']} qism)\n"
-        f"📺 <b>Katalogdagi jami seriallar:</b> {st['total_serial_groups']} ta ({st['total_serial_eps']} qism)\n"
-        f"⏳ <b>Yuklanmagan kinolar:</b> <b>{st['rem_movie_groups']} ta</b>\n"
-        f"⏳ <b>Yuklanmagan seriallar:</b> <b>{st['rem_serial_groups']} ta</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"💡 Endi ularni paneldagi <b>«📥 10 ta kino yuklash»</b> yoki <b>«📺 1 ta serial yuklash»</b> orqali bir zumda bazaga yuklashingiz mumkin!"
-    )
-    await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.archive_center_inline(auto_grab, auto_post, arch_ch, post_ch))
+    asyncio.create_task(_run_archive_scan_job(message.from_user.id, status_msg))
 
 
 @dp.callback_query(F.data == "arch_load_10")
@@ -1882,16 +2015,22 @@ async def cb_arch_load_10(call: CallbackQuery):
     if not await _can_load_archive(call.from_user.id):
         await call.answer("⛔ Sizda bu funksiya uchun ruxsat yo'q!", show_alert=True)
         return
-    await call.answer("📥 10 ta kino yuklanmoqda...")
-    await execute_archive_grouped_movies_load(call.message, 10, probe_chat_id=call.from_user.id)
+    if _ARCHIVE_JOB_LOCK.locked():
+        await call.answer("⏳ Arxiv jarayoni hozir band!", show_alert=True)
+        return
+    await call.answer("📥 10 ta kino fon rejimida yuklanmoqda...")
+    asyncio.create_task(execute_archive_grouped_movies_load(call.message, 10, probe_chat_id=call.from_user.id))
 
 @dp.callback_query(F.data == "arch_load_1_serial")
 async def cb_arch_load_1_serial(call: CallbackQuery):
     if not await _can_load_archive(call.from_user.id):
         await call.answer("⛔ Sizda bu funksiya uchun ruxsat yo'q!", show_alert=True)
         return
-    await call.answer("📺 1 ta serial yuklanmoqda...")
-    await execute_archive_grouped_serials_load(call.message, 1, probe_chat_id=call.from_user.id)
+    if _ARCHIVE_JOB_LOCK.locked():
+        await call.answer("⏳ Arxiv jarayoni hozir band!", show_alert=True)
+        return
+    await call.answer("📺 1 ta serial fon rejimida yuklanmoqda...")
+    asyncio.create_task(execute_archive_grouped_serials_load(call.message, 1, probe_chat_id=call.from_user.id))
 
 @dp.callback_query(F.data == "clear_movies_confirm")
 async def cb_clear_movies_confirm(call: CallbackQuery):
@@ -2098,16 +2237,22 @@ async def arch_pull_custom_process(message: Message, state: FSMContext):
     if not message.text.strip().isdigit():
         await message.answer("❌ Faqat raqam kiriting (masalan: 30)!", reply_markup=kb.super_admin_keyboard())
         return
+    if _ARCHIVE_JOB_LOCK.locked():
+        await message.answer("⏳ Arxiv jarayoni hozir band! Tugashini kuting.", reply_markup=kb.super_admin_keyboard())
+        return
     target_count = min(int(message.text.strip()), 200)
-    await execute_archive_batch_pull(message, target_count)
+    asyncio.create_task(execute_archive_batch_pull(message, target_count))
 
 @dp.callback_query(F.data.startswith("arch_pull:"))
 async def cb_arch_pull_preset(call: CallbackQuery):
     if not await db.has_permission(call.from_user.id, "add_movie"):
         return
+    if _ARCHIVE_JOB_LOCK.locked():
+        await call.answer("⏳ Arxiv jarayoni hozir band!", show_alert=True)
+        return
     target_count = int(call.data.split(":")[1])
-    await call.answer(f"📥 Arxivdan {target_count} ta kino qidirilmoqda...")
-    await execute_archive_batch_pull(call.message, target_count)
+    await call.answer(f"📥 Arxivdan {target_count} ta kino fon rejimida qidirilmoqda...")
+    asyncio.create_task(execute_archive_batch_pull(call.message, target_count))
 
 async def execute_archive_batch_pull(message: Message, target_count: int):
     """
@@ -2551,6 +2696,15 @@ async def sadmin_open_user_permissions(message: Message, state: FSMContext):
         return
 
     target_id = int(raw_id)
+    if db.is_owner_id(target_id) or target_id == message.from_user.id:
+        await message.answer(
+            "👑 <b>Bot Egasining (Super Administrator) lavozimi va huquqlarini o'zgartirish taqiqlangan!</b>\n"
+            "Siz doimiy <b>Super Administrator</b> bo'lib qolasiz — faqat boshqa xodimlarning lavozimini boshqarishingiz mumkin.",
+            reply_markup=kb.super_admin_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     u = await db.get_user(target_id)
     if not u:
         await db.set_user_role(target_id, "moderator")
@@ -2560,7 +2714,7 @@ async def sadmin_open_user_permissions(message: Message, state: FSMContext):
     perms = await db.get_user_permissions(target_id)
     await message.answer("👑 Boshqaruv oynasi:", reply_markup=kb.super_admin_keyboard())
     await message.answer(
-        f"👤 <b>Xodim sozlamalari:</b> {u.get('full_name', 'User')} (<code>{target_id}</code>)\n"
+        f"👤 <b>Xodim sozlamalari:</b> {html.escape(str(u.get('full_name', 'User')))} (<code>{target_id}</code>)\n"
         f"🎖 <b>Joriy lavozimi:</b> {config.ROLES.get(role, role)}\n\n"
         f"👇 <i>Lavozimni tanlang va u ishlata oladigan funksiyalarni yoqing (✅) yoki olib tashlang (❌):</i>",
         reply_markup=kb.staff_permissions_inline(target_id, role, perms),
@@ -2576,13 +2730,27 @@ async def cb_sadm_edit_staff(call: CallbackQuery):
     role = await db.get_user_role(target_id)
     perms = await db.get_user_permissions(target_id)
 
+    if db.is_owner_id(target_id) or target_id == call.from_user.id:
+        await call.message.edit_text(
+            f"👑 <b>Bot Egasi (Doimiy Super Administrator):</b> {html.escape(str(u.get('full_name', 'Owner')))} (<code>{target_id}</code>)\n"
+            f"🔒 <i>O'zingizning yoki Bot Egasining lavozimini o'zgartirish xavfsizlik sababli bloklangan!</i>",
+            reply_markup=kb.staff_permissions_inline(target_id, "superadmin", list(config.PERMISSIONS.keys())),
+            parse_mode="HTML"
+        )
+        await call.answer("👑 Bot Egasining lavozimi himoyalangan!", show_alert=False)
+        return
+
     await call.message.edit_text(
-        f"👤 <b>Xodim:</b> {u.get('full_name', 'User')} (<code>{target_id}</code>)\n"
+        f"👤 <b>Xodim:</b> {html.escape(str(u.get('full_name', 'User')))} (<code>{target_id}</code>)\n"
         f"🎖 <b>Joriy lavozimi:</b> {config.ROLES.get(role, role)}\n\n"
         f"👇 <i>Lavozimni o'zgartiring yoki funksiyalarni bittalab yoqib/o'chiring:</i>",
         reply_markup=kb.staff_permissions_inline(target_id, role, perms),
         parse_mode="HTML"
     )
+
+@dp.callback_query(F.data == "sadm_owner_locked")
+async def cb_sadm_owner_locked(call: CallbackQuery):
+    await call.answer("👑 Bot Egasining (Super Admin) lavozimini o'zgartirish mumkin emas!", show_alert=True)
 
 @dp.callback_query(F.data.startswith("setrole:"))
 async def cb_set_user_role(call: CallbackQuery):
@@ -2591,12 +2759,16 @@ async def cb_set_user_role(call: CallbackQuery):
     _, tid_str, new_role = call.data.split(":")
     target_id = int(tid_str)
 
+    if db.is_owner_id(target_id) or target_id == call.from_user.id:
+        await call.answer("👑 O'zingizning (Bot Egasining) lavozimini pasaytirish yoki o'zgartirish mumkin emas!", show_alert=True)
+        return
+
     await db.set_user_role(target_id, new_role)
     u = await db.get_user(target_id) or {"full_name": "User"}
     perms = await db.get_user_permissions(target_id)
 
     await call.message.edit_text(
-        f"👤 <b>Xodim:</b> {u.get('full_name', 'User')} (<code>{target_id}</code>)\n"
+        f"👤 <b>Xodim:</b> {html.escape(str(u.get('full_name', 'User')))} (<code>{target_id}</code>)\n"
         f"🎖 <b>Yangi lavozimi:</b> {config.ROLES.get(new_role, new_role)}\n\n"
         f"👇 <i>Endi unga tegishli funksiyalarni xohlagancha yoqib/o'chirishingiz mumkin:</i>",
         reply_markup=kb.staff_permissions_inline(target_id, new_role, perms),
@@ -2624,6 +2796,10 @@ async def cb_toggle_permission(call: CallbackQuery):
     _, tid_str, perm_key = call.data.split(":")
     target_id = int(tid_str)
 
+    if db.is_owner_id(target_id) or target_id == call.from_user.id:
+        await call.answer("👑 Bot Egasining (Super Admin) ruxsatlari doimiy 100% faol!", show_alert=True)
+        return
+
     role = await db.get_user_role(target_id)
     if role == "user":
         await db.set_user_role(target_id, "moderator")
@@ -2637,6 +2813,413 @@ async def cb_toggle_permission(call: CallbackQuery):
     await call.message.edit_reply_markup(reply_markup=kb.staff_permissions_inline(target_id, role, perms))
     p_name = config.PERMISSIONS.get(perm_key, perm_key)
     await call.answer(f"{'✅ Yoqildi' if added else '❌ Olib tashlandi'}: {p_name}")
+
+
+# ===================== DEDICATED IN-BOT WEBAPP ADMIN PANEL (/web_admin) =====================
+async def _render_web_admin_panel(target, edit: bool = False):
+    w_enabled = await db.get_setting("webapp_enabled", "1")
+    w_url = await get_webapp_url()
+    w_title = await db.get_setting("webapp_title", "Movie Land")
+    w_sub = await db.get_setting("webapp_subtitle", "O'zbek tilidagi kinolar • 24/7")
+    w_banner = await db.get_setting("webapp_banner", "")
+    w_visits = await db.get_setting("webapp_visits", "0")
+    trailers = await db.get_webapp_trailers()
+    st = await db.get_full_stats()
+
+    status_txt = "🟢 Faol (Ishlamoqda)" if w_enabled == "1" else "🔴 O'chirilgan (Texnik tanaffus)"
+    banner_txt = f"<code>{html.escape(w_banner[:80])}</code>" if w_banner else "<i>O'rnatilmagan</i>"
+    text = (
+        f"🌐 <b>WEBAPP ADMIN PANELI</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ <b>Holat:</b> {status_txt}\n"
+        f"🔗 <b>Sayt / Domen:</b> <code>{html.escape(w_url)}</code>\n"
+        f"🏷 <b>Sarlavha:</b> <b>{html.escape(w_title)}</b>\n"
+        f"📝 <b>Slogan:</b> <i>{html.escape(w_sub)}</i>\n"
+        f"📣 <b>E'lon banneri:</b> {banner_txt}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Jonli statistika:</b>\n"
+        f"• 🎬 Kinolar: <b>{st['total_movies']}</b> | 📺 Seriallar: <b>{st['total_serials']}</b>\n"
+        f"• 🔴 Treylerlar (Tez kunda): <b>{len(trailers)} ta</b>\n"
+        f"• 👁 WebApp kirishlar: <b>{int(w_visits or 0):,}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👇 <i>WebApp ni to'liq boshqarish uchun tugmalardan foydalaning:</i>"
+    )
+    markup = kb.web_admin_panel_inline(w_enabled, w_url, len(trailers))
+    if edit and isinstance(target, CallbackQuery):
+        try:
+            await target.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+            return
+        except Exception:
+            pass
+    msg_obj = target.message if isinstance(target, CallbackQuery) else target
+    await msg_obj.answer(text, reply_markup=markup, parse_mode="HTML")
+
+
+async def _sync_telegram_webapp_menu(url: str = None):
+    try:
+        from aiogram.types import MenuButtonWebApp, WebAppInfo
+        target_url = (url or await get_webapp_url()).strip()
+        if target_url.startswith("https://"):
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="🎬 WebApp",
+                    web_app=WebAppInfo(url=target_url)
+                )
+            )
+            return True
+    except Exception as e:
+        logging.warning(f"MenuButtonWebApp sync xato: {e}")
+    return False
+
+
+@dp.message(Command("web_admin"))
+@dp.message(F.text == "🌐 WebApp Admin")
+async def cmd_web_admin_entry(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if await db.get_user_role(uid) != "superadmin" and not db.is_owner_id(uid):
+        await message.answer("⛔ <b>WebApp Admin paneli</b> faqat Super Administrator uchun!", parse_mode="HTML")
+        return
+
+    if await db.is_web_admin_session_valid(uid):
+        await state.clear()
+        await _render_web_admin_panel(message, edit=False)
+        return
+
+    await state.set_state(WebAdminState.waiting_password)
+    await message.answer(
+        "🔐 <b>WEBAPP ADMIN PANELIGA KIRISH</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Davom etish uchun <b>WebApp Admin parolini</b> kiriting:\n"
+        "<i>(Parol yozilgan xabar xavfsizlik uchun darhol o'chiriladi)</i>",
+        reply_markup=kb.cancel_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@dp.message(WebAdminState.waiting_password)
+async def web_admin_verify_password(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    entered = (message.text or "").strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if entered in b_vals("cancel"):
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+
+    real_pass = await db.get_setting("web_admin_password", config.DEFAULT_WEB_ADMIN_PASSWORD)
+    if entered != real_pass:
+        await message.answer("❌ <b>Parol noto'g'ri!</b> Qaytadan kiriting yoki «❌ Bekor qilish» ni bosing:", parse_mode="HTML")
+        return
+
+    await state.clear()
+    await db.grant_web_admin_session(uid, hours=24)
+    await message.answer("✅ <b>WebApp Admin sessiyasi 24 soatga tasdiqlandi!</b>", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+    await _render_web_admin_panel(message, edit=False)
+
+
+async def _check_wadm_auth(call: CallbackQuery) -> bool:
+    uid = call.from_user.id
+    if await db.get_user_role(uid) != "superadmin" and not db.is_owner_id(uid):
+        await call.answer("⛔ Faqat Super Administrator!", show_alert=True)
+        return False
+    if not await db.is_web_admin_session_valid(uid):
+        await call.answer("🔐 Sessiya tugagan! /web_admin orqali parol kiriting.", show_alert=True)
+        return False
+    return True
+
+
+@dp.callback_query(F.data == "wadm_back")
+async def cb_wadm_back(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    await _render_web_admin_panel(call, edit=True)
+    await call.answer()
+
+
+@dp.callback_query(F.data == "wadm_close")
+async def cb_wadm_close(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer("Yopildi")
+
+
+@dp.callback_query(F.data == "wadm_toggle_enabled")
+async def cb_wadm_toggle_enabled(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    cur = await db.get_setting("webapp_enabled", "1")
+    nxt = "0" if cur == "1" else "1"
+    await db.set_setting("webapp_enabled", nxt)
+    await _render_web_admin_panel(call, edit=True)
+    await call.answer("🟢 WebApp yoqildi!" if nxt == "1" else "🔴 WebApp o'chirildi!")
+
+
+@dp.callback_query(F.data == "wadm_set_url")
+async def cb_wadm_set_url(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    cur = await get_webapp_url()
+    await state.set_state(WebAdminState.waiting_url)
+    await call.message.answer(
+        f"🔗 <b>Yangi WebApp (Sayt) HTTPS manzilini yuboring:</b>\n"
+        f"Joriy: <code>{html.escape(cur)}</code>\n"
+        f"Misol: <code>https://6b02fedeb2d06.myxvest1.ru/</code>",
+        reply_markup=kb.cancel_keyboard(),
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_url)
+async def wadm_save_url(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    await state.clear()
+    if txt in b_vals("cancel"):
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    if not txt.startswith("https://"):
+        await message.answer("❌ Manzil <code>https://</code> bilan boshlanishi shart!", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+        return
+    if not txt.endswith("/"):
+        txt += "/"
+    await db.set_setting("webapp_url", txt)
+    await _sync_telegram_webapp_menu(txt)
+    await message.answer(f"✅ WebApp manzili yangilandi va Telegram menyusiga sinxronlandi:\n<code>{html.escape(txt)}</code>", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+    await _render_web_admin_panel(message, edit=False)
+
+
+@dp.callback_query(F.data == "wadm_set_title")
+async def cb_wadm_set_title(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    await state.set_state(WebAdminState.waiting_title)
+    await call.message.answer("🏷 <b>WebApp yangi sarlavhasini yuboring</b> (masalan: <code>Movie Land</code>):", reply_markup=kb.cancel_keyboard(), parse_mode="HTML")
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_title)
+async def wadm_save_title(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    await state.clear()
+    if txt in b_vals("cancel") or not txt:
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    await db.set_setting("webapp_title", txt[:60])
+    await message.answer(f"✅ WebApp sarlavhasi saqlandi: <b>{html.escape(txt[:60])}</b>", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+    await _render_web_admin_panel(message, edit=False)
+
+
+@dp.callback_query(F.data == "wadm_set_subtitle")
+async def cb_wadm_set_subtitle(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    await state.set_state(WebAdminState.waiting_subtitle)
+    await call.message.answer("📝 <b>WebApp sloganini yuboring</b> (masalan: <code>O'zbek tilidagi kinolar • 24/7</code>):", reply_markup=kb.cancel_keyboard(), parse_mode="HTML")
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_subtitle)
+async def wadm_save_subtitle(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    await state.clear()
+    if txt in b_vals("cancel") or not txt:
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    await db.set_setting("webapp_subtitle", txt[:120])
+    await message.answer(f"✅ Slogan saqlandi: <i>{html.escape(txt[:120])}</i>", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+    await _render_web_admin_panel(message, edit=False)
+
+
+@dp.callback_query(F.data == "wadm_set_banner")
+async def cb_wadm_set_banner(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    await state.set_state(WebAdminState.waiting_banner)
+    await call.message.answer(
+        "📣 <b>WebApp yuqori qismida ko'rinadigan e'lon matnini yuboring:</b>\n"
+        "<i>(Bannerni o'chirish uchun <code>-</code> yuboring)</i>",
+        reply_markup=kb.cancel_keyboard(),
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_banner)
+async def wadm_save_banner(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    await state.clear()
+    if txt in b_vals("cancel"):
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    val = "" if txt in ("-", "0", "o'chirish") else txt[:220]
+    await db.set_setting("webapp_banner", val)
+    await message.answer("✅ E'lon banneri yangilandi!" if val else "🗑 E'lon banneri o'chirildi!", reply_markup=kb.super_admin_keyboard())
+    await _render_web_admin_panel(message, edit=False)
+
+
+@dp.callback_query(F.data == "wadm_trailers")
+async def cb_wadm_trailers(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    trailers = await db.get_webapp_trailers()
+    await call.message.edit_text(
+        f"🔴 <b>TEZ KUNDA — TREYLERLAR BOSHQARUVI ({len(trailers)} ta)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Bu yerdagi treylerlar WebApp bosh sahifasidagi dumaloq <b>«🔴 Tez kunda — treylerlar»</b> lentasida chiqadi.\n"
+        f"👇 Yangi qo'shish yoki o'chirish uchun bosing:",
+        reply_markup=kb.web_admin_trailers_inline(trailers),
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "wadm_trailer_add")
+async def cb_wadm_trailer_add(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    await state.set_state(WebAdminState.waiting_trailer_title)
+    await call.message.answer("🎬 <b>1/3 — Treyler (bo'lajak kino) nomini yuboring:</b>\nMisol: <code>O'rgimchak odam 4</code>", reply_markup=kb.cancel_keyboard(), parse_mode="HTML")
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_trailer_title)
+async def wadm_trailer_title_step(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    if txt in b_vals("cancel") or not txt:
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    await state.update_data(tr_title=txt[:80])
+    await state.set_state(WebAdminState.waiting_trailer_poster)
+    await message.answer("🖼 <b>2/3 — Treyler posterini yuboring</b> (Rasm sifatida yuklang yoki HTTPS rasm ssilkasi yozing):", reply_markup=kb.cancel_keyboard(), parse_mode="HTML")
+
+
+@dp.message(WebAdminState.waiting_trailer_poster)
+async def wadm_trailer_poster_step(message: Message, state: FSMContext):
+    if message.text and message.text.strip() in b_vals("cancel"):
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    poster_url = ""
+    if message.photo:
+        poster_url = await upload_telegram_photo_to_public_url(message.photo[-1].file_id)
+    elif message.text and message.text.strip().startswith(("http://", "https://")):
+        poster_url = message.text.strip()
+    if not poster_url:
+        await message.answer("❌ Rasm yuboring yoki to'g'ri HTTPS rasm linkini kiriting!")
+        return
+    await state.update_data(tr_poster=poster_url)
+    await state.set_state(WebAdminState.waiting_trailer_video)
+    await message.answer(
+        "▶️ <b>3/3 — YouTube / Telegram treyler havolasini yuboring</b>\n"
+        "<i>(Yoki shunchaki anons bo'lsa <code>-</code> yuboring):</i>",
+        reply_markup=kb.cancel_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@dp.message(WebAdminState.waiting_trailer_video)
+async def wadm_trailer_video_step(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    data = await state.get_data()
+    await state.clear()
+    if txt in b_vals("cancel"):
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    v_url = "" if txt in ("-", "") else txt
+    await db.add_webapp_trailer(title=data["tr_title"], poster_url=data["tr_poster"], video_url=v_url)
+    await message.answer(f"✅ <b>«{html.escape(data['tr_title'])}»</b> treyleri WebApp ga qo'shildi!", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
+    await _render_web_admin_panel(message, edit=False)
+
+
+@dp.callback_query(F.data.startswith("wadm_trailer_del:"))
+async def cb_wadm_trailer_del(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    tr_id = int(call.data.split(":")[1])
+    await db.delete_webapp_trailer(tr_id)
+    await call.answer("🗑 Treyler o'chirildi!", show_alert=False)
+    await cb_wadm_trailers(call)
+
+
+@dp.callback_query(F.data == "wadm_vip_prices")
+async def cb_wadm_vip_prices(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    from ecosystem_handlers import render_economy_admin_panel
+    await render_economy_admin_panel(call)
+    await call.answer()
+
+
+@dp.callback_query(F.data == "wadm_stats")
+async def cb_wadm_stats(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    st = await db.get_full_stats()
+    visits = int(await db.get_setting("webapp_visits", "0") or 0)
+    trailers = await db.get_webapp_trailers()
+    w_url = await get_webapp_url()
+    await call.answer()
+    await call.message.edit_text(
+        f"📊 <b>WEBAPP JONLI STATISTIKASI</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🌐 <b>Manzil:</b> <code>{html.escape(w_url)}</code>\n"
+        f"👁 <b>Jami WebApp ochilishlar:</b> <b>{visits:,} marta</b>\n"
+        f"🎬 <b>Katalogdagi kinolar:</b> <b>{st['total_movies']} ta</b>\n"
+        f"📺 <b>Seriallar:</b> <b>{st['total_serials']} ta</b> ({st['total_episodes']} qism)\n"
+        f"🔴 <b>Faol treylerlar:</b> <b>{len(trailers)} ta</b>\n"
+        f"👥 <b>Jami foydalanuvchilar:</b> <b>{st['total_users']:,} ta</b> (💎 VIP: {st['premium_users']})\n"
+        f"━━━━━━━━━━━━━━━━━━",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [kb.ibtn(text="🔙 WebApp Admin paneliga", callback_data="wadm_back", style="primary")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data == "wadm_sync_menu")
+async def cb_wadm_sync_menu(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    ok = await _sync_telegram_webapp_menu()
+    asyncio.create_task(export_webapp_catalog_json())
+    await call.answer(
+        "✅ Telegram MenuButton WebApp va katalog sinxronlandi!" if ok else "⚠️ Katalog yangilandi (HTTPS URL ni tekshiring)",
+        show_alert=True
+    )
+
+
+@dp.callback_query(F.data == "wadm_change_pass")
+async def cb_wadm_change_pass(call: CallbackQuery, state: FSMContext):
+    if not await _check_wadm_auth(call):
+        return
+    await state.set_state(WebAdminState.waiting_new_password)
+    await call.message.answer("🔑 <b>/web_admin uchun yangi parolni kiriting</b> (kamida 6 belgi):", reply_markup=kb.cancel_keyboard(), parse_mode="HTML")
+    await call.answer()
+
+
+@dp.message(WebAdminState.waiting_new_password)
+async def wadm_save_new_pass(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await state.clear()
+    if txt in b_vals("cancel"):
+        await message.answer("❌ Bekor qilindi.", reply_markup=kb.super_admin_keyboard())
+        return
+    if len(txt) < 6:
+        await message.answer("❌ Parol kamida 6 belgidan iborat bo'lishi kerak!", reply_markup=kb.super_admin_keyboard())
+        return
+    await db.set_setting("web_admin_password", txt)
+    await message.answer("✅ <b>/web_admin paroli muvaffaqiyatli o'zgartirildi!</b>", reply_markup=kb.super_admin_keyboard(), parse_mode="HTML")
 
 
 # ===================== SUPER ADMIN: TOP-15 AI TIZIMI BOSHQARUVI =====================
@@ -2774,161 +3357,170 @@ async def cb_ai_test_prov(call: CallbackQuery):
 async def cb_ai_run_batch_movies(call: CallbackQuery):
     if await db.get_user_role(call.from_user.id) != "superadmin":
         return
-    await call.answer("🪄 AI barcha kinolar ma'lumoti va tavsifini to'ldirishni boshladi!")
+    await call.answer("🪄 AI barcha kinolar ma'lumotini fon rejimida to'ldirishni boshladi!")
     movies = await db.get_all_movies(500)
     status_msg = await call.message.answer(
-        f"🪄 <b>{len(movies)} ta kino AI + Kino Ensiklopediyasi orqali to'liq to'ldirilmoqda...</b>",
+        f"🪄 <b>{len(movies)} ta kino fon rejimida AI + Kino Ensiklopediyasi orqali tekshirilmoqda...</b>",
         parse_mode="HTML"
     )
 
-    updated = 0
-    for m in movies:
-        raw_blob = f"🎬 Nomi: {m['name']}"
-        arch_mid = await db.get_archive_msg_id_for_code(m["code"])
-        meta = await ai_service.enrich_movie_metadata_with_ai(
-            raw_text=raw_blob,
-            msg_id=arch_mid,
-            existing_movie=m
-        )
-        new_name = meta["name"]
-        new_genre = meta["genre"] if meta["has_genre"] else m.get("genre", "🔥 Jangari")
-        new_year = meta["year"] if meta["has_year"] else m.get("year", "2024")
-        new_country = meta["country"] if meta["has_country"] else m.get("country", "AQSH")
-        new_qual = meta["quality"] if meta["has_quality"] else m.get("quality", "1080p Full HD")
-        new_lang = "O'zbek tilida"
-        new_cap = meta["caption"]
+    async def _worker():
+        updated = 0
+        for m in movies:
+            raw_blob = f"🎬 Nomi: {m['name']}"
+            arch_mid = await db.get_archive_msg_id_for_code(m["code"])
+            meta = await ai_service.enrich_movie_metadata_with_ai(
+                raw_text=raw_blob,
+                msg_id=arch_mid,
+                existing_movie=m
+            )
+            new_name = meta["name"]
+            new_genre = meta["genre"] if meta["has_genre"] else m.get("genre", "🔥 Jangari")
+            new_year = meta["year"] if meta["has_year"] else m.get("year", "2024")
+            new_country = meta["country"] if meta["has_country"] else m.get("country", "AQSH")
+            new_qual = meta["quality"] if meta["has_quality"] else m.get("quality", "1080p Full HD")
+            new_lang = "O'zbek tilida"
+            new_cap = meta["caption"]
 
-        if (
-            new_name != m.get("name")
-            or new_genre != m.get("genre")
-            or new_year != m.get("year")
-            or new_country != m.get("country")
-            or new_cap != m.get("caption")
-        ):
-            await db.update_movie_full_metadata(
-                code=m["code"],
-                name=new_name,
-                genre=new_genre,
-                year=new_year,
-                country=new_country,
-                quality=new_qual,
-                language=new_lang,
-                caption=new_cap
-            )
-            updated += 1
-        if not m.get("photo_id"):
-            poster_url = await ai_service.find_movie_poster_tmdb(
-                name=new_name,
-                year=str(new_year),
-                is_serial=bool(m.get("is_serial")),
-                force=True
-            )
-            if poster_url:
-                await db.update_movie_photo(m["code"], poster_url)
+            if (
+                new_name != m.get("name")
+                or new_genre != m.get("genre")
+                or new_year != m.get("year")
+                or new_country != m.get("country")
+                or new_cap != m.get("caption")
+            ):
+                await db.update_movie_full_metadata(
+                    code=m["code"],
+                    name=new_name,
+                    genre=new_genre,
+                    year=new_year,
+                    country=new_country,
+                    quality=new_qual,
+                    language=new_lang,
+                    caption=new_cap
+                )
                 updated += 1
-        await asyncio.sleep(0.05)
+            if not m.get("photo_id"):
+                poster_url = await ai_service.find_movie_poster_tmdb(
+                    name=new_name,
+                    year=str(new_year),
+                    is_serial=bool(m.get("is_serial")),
+                    force=True
+                )
+                if poster_url:
+                    await db.update_movie_photo(m["code"], poster_url)
+                    updated += 1
+            await asyncio.sleep(0.05)
 
-    await status_msg.edit_text(
-        f"✅ <b>AI to'liq tekshiruvi yakunlandi!</b>\n"
-        f"🎬 Nomi, yili, davlati, janri va tavsifi to'ldirilgan/to'g'rilangan kinolar: <b>{updated} ta</b>",
-        parse_mode="HTML"
-    )
+        asyncio.create_task(export_webapp_catalog_json())
+        try:
+            await status_msg.edit_text(
+                f"✅ <b>AI to'liq tekshiruvi yakunlandi!</b>\n"
+                f"🎬 Nomi, yili, davlati, janri va tavsifi to'ldirilgan/to'g'rilangan kinolar: <b>{updated} ta</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    asyncio.create_task(_worker())
 
 
 @dp.callback_query(F.data == "arch_ai_fix_posts")
 async def cb_arch_ai_fix_posts(call: CallbackQuery):
     """
-    Arxivdagi chala yoki tartiblanmagan postlarni (masalan: Javobsiz sevgi, Jodugar, Flesh va b.):
-    1) AI + Kino Ensiklopediyasi yordamida aniq Nomi, Davlati, Yili, Sifati, Janri, Tilini aniqlaydi;
-    2) Arxiv guruh/kanalga (-1003124847141) standart shablon bilan qayta yuboradi (re-post);
-    3) Kim yuborgan bo'lishidan qat'i nazar eski chala postni Arxiv kanaldan avtomatik o'chirib yuboradi!
+    Arxivdagi chala yoki tartiblanmagan postlarni fon rejimida standart shablonga keltiradi.
     """
     if not await _can_load_archive(call.from_user.id):
         await call.answer("⛔ Sizda bu amal uchun ruxsat yo'q!", show_alert=True)
         return
-    await call.answer("✨ Arxivdagi chala postlar qayta yuborilib, eskisi o'chirilmoqda...")
+    await call.answer("✨ Arxivdagi chala postlar fon rejimida to'g'rilanmoqda...")
     arch_ch_str = await db.get_setting("archive_channel_id", config.DEFAULT_ARCHIVE_CHANNEL_ID)
     arch_ch = int(arch_ch_str)
+    probe_uid = call.from_user.id
 
     messy_items = await db.get_messy_archive_catalog_items()
     status_msg = await call.message.answer(
-        f"✨ <b>Arxiv kanaldagi ({arch_ch}) {len(messy_items)} ta chala/tartiblanmagan postlar qayta yuborilib, tavsifi standart shablonga to'g'rilanmoqda va eskisi o'chirilmoqda...</b>",
+        f"✨ <b>Arxiv kanaldagi ({arch_ch}) {len(messy_items)} ta chala/tartiblanmagan postlar fon rejimida standart shablonga to'g'rilanmoqda...</b>",
         parse_mode="HTML"
     )
 
-    fixed_cnt = 0
-    deleted_old_cnt = 0
+    async def _fix_worker():
+        fixed_cnt = 0
+        deleted_old_cnt = 0
+        for idx, item in enumerate(messy_items, 1):
+            old_mid = int(item["msg_id"])
+            fid = await _resolve_catalog_file_id(item, arch_ch, probe_uid)
+            if not fid:
+                continue
 
-    for idx, item in enumerate(messy_items, 1):
-        old_mid = int(item["msg_id"])
-        fid = await _resolve_catalog_file_id(item, arch_ch, call.from_user.id)
-        if not fid:
-            continue
+            meta = {
+                "name": item.get("parsed_name") or item.get("base_title") or "Kino",
+                "country": item.get("country") or "AQSH",
+                "year": item.get("year") or "2024",
+                "quality": item.get("quality") or "1080p Full HD",
+                "genre": item.get("genre") or "🔥 Jangari",
+                "language": "O'zbek tilida"
+            }
+            std_cap = ai_service.format_standard_archive_caption(meta)
 
-        meta = {
-            "name": item.get("parsed_name") or item.get("base_title") or "Kino",
-            "country": item.get("country") or "AQSH",
-            "year": item.get("year") or "2024",
-            "quality": item.get("quality") or "1080p Full HD",
-            "genre": item.get("genre") or "🔥 Jangari",
-            "language": "O'zbek tilida"
-        }
-        std_cap = ai_service.format_standard_archive_caption(meta)
-
-        try:
-            # 1. Аввал tahrirlab ko'ramiz; agar bot o'zi qayta post qilishi kerak bo'lsa yangi post yuborib eskisini o'chiramiz!
-            new_msg = None
             try:
-                new_msg = await bot.send_video(
-                    chat_id=arch_ch,
-                    video=fid,
-                    caption=std_cap,
-                    disable_notification=True
-                )
-            except Exception:
+                new_msg = None
                 try:
-                    new_msg = await bot.send_document(
+                    new_msg = await bot.send_video(
                         chat_id=arch_ch,
-                        document=fid,
+                        video=fid,
                         caption=std_cap,
                         disable_notification=True
                     )
                 except Exception:
-                    pass
+                    try:
+                        new_msg = await bot.send_document(
+                            chat_id=arch_ch,
+                            document=fid,
+                            caption=std_cap,
+                            disable_notification=True
+                        )
+                    except Exception:
+                        pass
 
-            if new_msg:
-                fixed_cnt += 1
+                if new_msg:
+                    fixed_cnt += 1
+                    try:
+                        await bot.delete_message(chat_id=arch_ch, message_id=old_mid)
+                        deleted_old_cnt += 1
+                    except Exception as del_err:
+                        logging.debug(f"Eski postni o'chirish ({old_mid}): {del_err}")
+                    await db.replace_archive_catalog_msg_id(old_mid, new_msg.message_id, std_cap, fid)
+                else:
+                    await bot.edit_message_caption(chat_id=arch_ch, message_id=old_mid, caption=std_cap)
+                    fixed_cnt += 1
+                    await db.replace_archive_catalog_msg_id(old_mid, old_mid, std_cap, fid)
+            except Exception as e:
+                logging.debug(f"Arxiv post yangilash ({old_mid}): {e}")
+
+            if idx % 5 == 0 or idx == len(messy_items):
                 try:
-                    await bot.delete_message(chat_id=arch_ch, message_id=old_mid)
-                    deleted_old_cnt += 1
-                except Exception as del_err:
-                    logging.debug(f"Eski postni o'chirish ({old_mid}): {del_err}")
-                await db.replace_archive_catalog_msg_id(old_mid, new_msg.message_id, std_cap, fid)
-            else:
-                await bot.edit_message_caption(chat_id=arch_ch, message_id=old_mid, caption=std_cap)
-                fixed_cnt += 1
-                await db.replace_archive_catalog_msg_id(old_mid, old_mid, std_cap, fid)
-        except Exception as e:
-            logging.debug(f"Arxiv post yangilash ({old_mid}): {e}")
+                    await status_msg.edit_text(
+                        f"✨ <b>Arxivdagi chala postlar yangilanmoqda: {idx} / {len(messy_items)}</b>\n"
+                        f"✅ Standart shablonga to'g'rilandi: <b>{fixed_cnt} ta</b> | 🗑 Eskisi o'chirildi: <b>{deleted_old_cnt} ta</b>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            await asyncio.sleep(3.1)
 
-        if idx % 5 == 0 or idx == len(messy_items):
-            try:
-                await status_msg.edit_text(
-                    f"✨ <b>Arxivdagi chala postlar yangilanmoqda: {idx} / {len(messy_items)}</b>\n"
-                    f"✅ Standart shablonga to'g'rilandi: <b>{fixed_cnt} ta</b> | 🗑 Eskisi o'chirildi: <b>{deleted_old_cnt} ta</b>",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
-        await asyncio.sleep(3.1)  # Guruh rate-limitdan o'tish uchun xavfsiz pauza
+        try:
+            await status_msg.edit_text(
+                f"✅ <b>ARXIV KANAL CHALA POSTLARINI TO'LDIRISH YAKUNLANDI!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"✨ <b>Standart shablonga keltirilib qayta yuborilgan kinolar:</b> {fixed_cnt} ta\n"
+                f"🗑 <b>O'chirilgan eski chala postlar:</b> {deleted_old_cnt} ta",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
-    await status_msg.edit_text(
-        f"✅ <b>ARXIV KANAL CHALA POSTLARINI TO'LDIRISH YAKUNLANDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"✨ <b>Standart shablonga keltirilib qayta yuborilgan kinolar:</b> {fixed_cnt} ta\n"
-        f"🗑 <b>O'chirilgan eski chala postlar:</b> {deleted_old_cnt} ta",
-        parse_mode="HTML"
-    )
+    asyncio.create_task(_fix_worker())
 
 
 # ===================== SUPER ADMIN: BACKUP / EXPORT / IMPORT MARKAZI =====================
@@ -3255,12 +3847,17 @@ async def cmd_start(message: Message, state: FSMContext):
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     param = args[0] if args else None
 
-    ref_by, movie_code, start_ep = None, None, None
+    ref_by, movie_code, start_ep, special_nav = None, None, None, None
     if param:
-        if param.startswith("ref_"):
-            ref_str = param.replace("ref_", "")
+        p_low = param.lower().strip()
+        if p_low.startswith("ref_"):
+            ref_str = param[4:]
             if ref_str.isdigit():
                 ref_by = int(ref_str)
+        elif p_low in ("vip", "premium", "vip_shop"):
+            special_nav = "vip"
+        elif p_low in ("bonus", "earn", "referral"):
+            special_nav = "bonus"
         elif "_" in param and all(p.isdigit() for p in param.lstrip("#").split("_", 1)):
             c_part, ep_part = param.lstrip("#").split("_", 1)
             movie_code = c_part
@@ -3327,7 +3924,15 @@ async def cmd_start(message: Message, state: FSMContext):
         )
         return
 
-    # 3-QADAM: Obuna tasdiqlangan bo'lsa, kino yoki asosiy menyuni ochamiz
+    # 3-QADAM: Obuna tasdiqlangan bo'lsa, maxsus bo'lim (vip/bonus), kino yoki asosiy menyuni ochamiz
+    if special_nav == "vip":
+        from ecosystem_handlers import send_vip_shop_screen
+        await send_vip_shop_screen(message, user_id)
+        return
+    if special_nav == "bonus":
+        from ecosystem_handlers import send_earn_money_screen
+        await send_earn_money_screen(message, user_id, bot)
+        return
     if movie_code:
         await send_movie_card(message, user_id, movie_code, ep_num=start_ep)
         if start_ep:
@@ -3339,10 +3944,11 @@ async def cmd_start(message: Message, state: FSMContext):
     tag = u.get("vip_tag") or "PREMIUM"
     vip_badge = t("vip_badge_active", lang, tag=tag) if is_vip else t("vip_badge_free", lang)
 
+    w_url = await get_webapp_url()
     welcome = t("welcome", lang, name=full_name, vip_badge=vip_badge)
     await message.answer(
         welcome,
-        reply_markup=kb.user_inline_dashboard(lang=lang),
+        reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url),
         parse_mode="HTML"
     )
 
@@ -3387,16 +3993,22 @@ async def cb_set_language(call: CallbackQuery):
         return
 
     if movie_code:
-        await send_movie_card(call, user_id, movie_code)
+        if "_" in movie_code and all(p.isdigit() for p in movie_code.split("_", 1)):
+            c_p, ep_p = movie_code.split("_", 1)
+            await send_movie_card(call, user_id, c_p, ep_num=int(ep_p))
+            await send_movie_video(call, user_id, c_p, ep_num=int(ep_p))
+        else:
+            await send_movie_card(call, user_id, movie_code)
 
     is_vip = await db.is_user_premium(user_id)
     u = await db.get_user(user_id) or {}
     tag = u.get("vip_tag") or "PREMIUM"
     vip_badge = t("vip_badge_active", new_lang, tag=tag) if is_vip else t("vip_badge_free", new_lang)
+    w_url = await get_webapp_url()
 
     await call.message.answer(
         t("welcome", new_lang, name=call.from_user.full_name, vip_badge=vip_badge),
-        reply_markup=kb.user_inline_dashboard(lang=new_lang),
+        reply_markup=kb.user_inline_dashboard(lang=new_lang, webapp_url=w_url),
         parse_mode="HTML"
     )
     await call.answer()
@@ -3411,16 +4023,17 @@ async def cb_back_main_menu(call: CallbackQuery, state: FSMContext):
     tag = u.get("vip_tag") or "PREMIUM"
     vip_badge = t("vip_badge_active", lang, tag=tag) if is_vip else t("vip_badge_free", lang)
     welcome = t("welcome", lang, name=call.from_user.full_name, vip_badge=vip_badge)
+    w_url = await get_webapp_url()
     try:
         await call.message.edit_text(
             welcome,
-            reply_markup=kb.user_inline_dashboard(lang=lang),
+            reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url),
             parse_mode="HTML"
         )
     except Exception:
         await call.message.answer(
             welcome,
-            reply_markup=kb.user_inline_dashboard(lang=lang),
+            reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url),
             parse_mode="HTML"
         )
     await call.answer()
@@ -3445,7 +4058,12 @@ async def cb_check_sub(call: CallbackQuery):
         parse_mode="HTML"
     )
     if movie_code:
-        await send_movie_card(call, user_id, movie_code)
+        if "_" in movie_code and all(p.isdigit() for p in movie_code.split("_", 1)):
+            c_p, ep_p = movie_code.split("_", 1)
+            await send_movie_card(call, user_id, c_p, ep_num=int(ep_p))
+            await send_movie_video(call, user_id, c_p, ep_num=int(ep_p))
+        else:
+            await send_movie_card(call, user_id, movie_code)
     elif not await db.has_chosen_lang(user_id):
         await call.message.answer(t("choose_lang", lang), reply_markup=kb.language_select_inline(), parse_mode="HTML")
     else:
@@ -3454,7 +4072,8 @@ async def cb_check_sub(call: CallbackQuery):
         tag = u.get("vip_tag") or "PREMIUM"
         vip_badge = t("vip_badge_active", lang, tag=tag) if is_vip else t("vip_badge_free", lang)
         welcome = t("welcome", lang, name=call.from_user.full_name, vip_badge=vip_badge)
-        await call.message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang), parse_mode="HTML")
+        w_url = await get_webapp_url()
+        await call.message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url), parse_mode="HTML")
 
 @dp.message(F.text.in_(b_vals("cancel")))
 async def cancel_action(message: Message, state: FSMContext):
@@ -3474,7 +4093,8 @@ async def cancel_action(message: Message, state: FSMContext):
         tag = u.get("vip_tag") or "PREMIUM"
         vip_badge = t("vip_badge_active", lang, tag=tag) if is_vip else t("vip_badge_free", lang)
         welcome = t("welcome", lang, name=message.from_user.full_name, vip_badge=vip_badge)
-        await message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang), parse_mode="HTML")
+        w_url = await get_webapp_url()
+        await message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url), parse_mode="HTML")
 
 @dp.message(F.text.in_(b_vals("user_menu")))
 async def switch_to_user_menu(message: Message, state: FSMContext):
@@ -3489,20 +4109,21 @@ async def switch_to_user_menu(message: Message, state: FSMContext):
     tag = u.get("vip_tag") or "PREMIUM"
     vip_badge = t("vip_badge_active", lang, tag=tag) if is_vip else t("vip_badge_free", lang)
     welcome = t("welcome", lang, name=message.from_user.full_name, vip_badge=vip_badge)
-    await message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang), parse_mode="HTML")
+    w_url = await get_webapp_url()
+    await message.answer(welcome, reply_markup=kb.user_inline_dashboard(lang=lang, webapp_url=w_url), parse_mode="HTML")
 
 
 # ===================== POLZOVATEL BO'LIMLARI (INLINE DASHBOARD + REPLY, UZ / RU) =====================
 async def send_movies_search_catalog(target, user_id: int, state: FSMContext, page: int = 1):
-    """Qidiruv faqat Inline Katalog (switch_inline_query_current_chat) orqali ishlaydi."""
+    """Qidiruv faqat tezkor qidiruv (switch_inline_query_current_chat) orqali ishlaydi."""
     lang = await db.get_user_lang(user_id)
     await state.clear()
     _, total = await db.get_movies_paginated(offset=0, limit=1)
 
     if lang == "ru":
-        header = f"{config.pe('🔍')} <b>Инлайн-каталог ({total} шт.):</b>"
+        header = f"{config.pe('🔍')} <b>Поиск фильмов ({total} шт.):</b>"
     else:
-        header = f"{config.pe('🔍')} <b>Inline Katalog ({total} ta):</b>"
+        header = f"{config.pe('🔍')} <b>Kino qidirish ({total} ta):</b>"
 
     markup = kb.movies_catalog_paginated_inline(lang=lang)
     if isinstance(target, CallbackQuery):
@@ -4651,6 +5272,21 @@ async def pro_movie_finish(message: Message, state: FSMContext):
     final_quality = ai_meta["quality"] if data.get("quality") in (None, "", "auto") else data["quality"]
     final_caption = raw_caption if raw_caption else ai_meta["caption"]
 
+    # Dublikat tekshiruvi: qo'lda qo'shishda ham 100% dublikatni bloklaymiz!
+    existing_dup = await db.find_existing_movie_duplicate(final_name, data["file_id"])
+    if existing_dup:
+        await state.clear()
+        perms = await db.get_user_permissions(message.from_user.id)
+        role = await db.get_user_role(message.from_user.id)
+        await message.answer(
+            f"🛡 <b>Dublikat bloklandi!</b>\n"
+            f"Bu kino allaqachon bazada mavjud:\n"
+            f"🎬 <b>{html.escape(str(existing_dup['name']))}</b> — Kod: <code>#{existing_dup['code']}</code>",
+            reply_markup=kb.staff_panel_keyboard(perms, is_super=(role == "superadmin")),
+            parse_mode="HTML"
+        )
+        return
+
     poster_url = await ai_service.find_movie_poster_tmdb(
         name=final_name,
         year=str(final_year),
@@ -4671,6 +5307,7 @@ async def pro_movie_finish(message: Message, state: FSMContext):
         photo_id=poster_url,
         caption=final_caption
     )
+    asyncio.create_task(export_webapp_catalog_json())
     await state.clear()
     perms = await db.get_user_permissions(message.from_user.id)
     role = await db.get_user_role(message.from_user.id)
@@ -5425,41 +6062,49 @@ async def broadcast_start_cmd(message: Message, state: FSMContext):
 async def broadcast_send_proc(message: Message, state: FSMContext):
     await state.clear()
     users = await db.get_all_users()
-    status_msg = await message.answer(f"📤 Xabar <b>{len(users)}</b> ta foydalanuvchiga asinxron yuborilmoqda...", parse_mode="HTML")
-
-    sent, failed = 0, 0
-    batch_size = 30
-
-    for i in range(0, len(users), batch_size):
-        chunk = users[i : i + batch_size]
-        async def send_one(uid):
-            nonlocal sent, failed
-            for _ in range(2):
-                try:
-                    await bot.copy_message(
-                        chat_id=uid,
-                        from_chat_id=message.chat.id,
-                        message_id=message.message_id,
-                        reply_markup=message.reply_markup
-                    )
-                    sent += 1
-                    return
-                except TelegramRetryAfter as e:
-                    await asyncio.sleep(e.retry_after + 0.1)
-                except Exception:
-                    break
-            failed += 1
-
-        await asyncio.gather(*(send_one(u) for u in chunk))
-        await asyncio.sleep(0.05)
-
     perms = await db.get_user_permissions(message.from_user.id)
     role = await db.get_user_role(message.from_user.id)
-    await status_msg.edit_text(
-        f"✅ <b>Xabar tarqatish yakunlandi!</b>\n📬 Yetkazildi: <b>{sent} ta</b> | 🚫 Xato: <b>{failed} ta</b>",
+    status_msg = await message.answer(
+        f"📤 Xabar <b>{len(users)}</b> ta foydalanuvchiga fon rejimida asinxron yuborilmoqda...",
+        reply_markup=kb.staff_panel_keyboard(perms, is_super=(role == "superadmin")),
         parse_mode="HTML"
     )
-    await message.answer("Boshqaruv paneli:", reply_markup=kb.staff_panel_keyboard(perms, is_super=(role == "superadmin")))
+
+    async def _bc_worker():
+        sent, failed = 0, 0
+        batch_size = 25
+        for i in range(0, len(users), batch_size):
+            chunk = users[i : i + batch_size]
+            async def send_one(uid):
+                nonlocal sent, failed
+                for _ in range(2):
+                    try:
+                        await bot.copy_message(
+                            chat_id=uid,
+                            from_chat_id=message.chat.id,
+                            message_id=message.message_id,
+                            reply_markup=message.reply_markup
+                        )
+                        sent += 1
+                        return
+                    except TelegramRetryAfter as e:
+                        await asyncio.sleep(e.retry_after + 0.1)
+                    except Exception:
+                        break
+                failed += 1
+
+            await asyncio.gather(*(send_one(u) for u in chunk))
+            await asyncio.sleep(0.08)
+
+        try:
+            await status_msg.edit_text(
+                f"✅ <b>Xabar tarqatish yakunlandi!</b>\n📬 Yetkazildi: <b>{sent} ta</b> | 🚫 Xato: <b>{failed} ta</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    asyncio.create_task(_bc_worker())
 
 
 # ===================== ASOSIY MATNLI QIDIRUV (UZ / RU) =====================
@@ -5739,6 +6384,24 @@ async def start_dummy_health_server():
                 return web.FileResponse(webapp_cat_path)
             return web.json_response({"ok": True, "movies": items})
 
+        async def handle_api_bootstrap(request):
+            items = await export_webapp_catalog_json()
+            trailers = await db.get_webapp_trailers()
+            cfg_out = {
+                "webapp_enabled": await db.get_setting("webapp_enabled", "1"),
+                "webapp_title": await db.get_setting("webapp_title", "Movie Land"),
+                "webapp_subtitle": await db.get_setting("webapp_subtitle", "O'zbek tilidagi kinolar • 24/7"),
+                "webapp_banner": await db.get_setting("webapp_banner", ""),
+                "vip_7_price": int(await db.get_setting("vip_7_price", config.DEFAULT_VIP_7_PRICE) or 7000),
+                "vip_30_price": int(await db.get_setting("vip_30_price", config.DEFAULT_VIP_30_PRICE) or 20000),
+                "vip_90_price": int(await db.get_setting("vip_90_price", config.DEFAULT_VIP_90_PRICE) or 30000),
+                "ref_reward_amount": int(await db.get_setting("ref_reward_amount", config.DEFAULT_REF_REWARD) or 1000),
+                "bot_username": BOT_USERNAME or "movieeland_bot",
+                "group_url": config.COMMUNITY_GROUP_URL,
+                "channel_url": "https://t.me/movieee_land",
+            }
+            return web.json_response({"ok": True, "config": cfg_out, "movies": items, "trailers": trailers})
+
         async def handle_api_auth(request):
             try:
                 body = await request.json()
@@ -5749,18 +6412,38 @@ async def start_dummy_health_server():
                 uid = int(tg_u.get("id", 0))
                 db_u = await db.get_user(uid) or {}
                 is_vip = await db.is_user_premium(uid)
+                favs = await db.get_user_favorites(uid)
                 return web.json_response({
                     "ok": True,
                     "user": {
                         "id": uid,
                         "full_name": db_u.get("full_name") or tg_u.get("first_name", "User"),
                         "username": db_u.get("username") or tg_u.get("username", ""),
+                        "joined_at": db_u.get("joined_at", ""),
+                        "ref_count": int(db_u.get("ref_count", 0) or 0),
                         "role": db_u.get("role", "user"),
                         "is_premium": is_vip,
+                        "premium_until": db_u.get("premium_until", ""),
                         "vip_tag": db_u.get("vip_tag", "PREMIUM"),
-                        "balance": db_u.get("balance", 0),
+                        "balance": int(db_u.get("balance", 0) or 0),
+                        "favorites": [str(f["code"]) for f in favs],
                     }
                 })
+            except Exception as e:
+                return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+        async def handle_api_toggle_fav(request):
+            try:
+                body = await request.json()
+                tg_u = verify_telegram_webapp_init_data(body.get("initData", ""))
+                if not tg_u:
+                    return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+                uid = int(tg_u.get("id", 0))
+                code = str(body.get("code", "")).strip()
+                if not code:
+                    return web.json_response({"ok": False}, status=400)
+                added = await db.toggle_favorite(uid, code)
+                return web.json_response({"ok": True, "is_fav": added})
             except Exception as e:
                 return web.json_response({"ok": False, "error": str(e)}, status=400)
 
@@ -5782,7 +6465,9 @@ async def start_dummy_health_server():
         app.router.add_get("/webapp", handle_webapp_index)
         app.router.add_get("/catalog.json", handle_api_movies)
         app.router.add_get("/api/movies", handle_api_movies)
+        app.router.add_get("/api/bootstrap", handle_api_bootstrap)
         app.router.add_post("/api/auth", handle_api_auth)
+        app.router.add_post("/api/toggle_fav", handle_api_toggle_fav)
         app.router.add_post("/api/watch", handle_api_watch)
         app.router.add_get("/health", handle_ping)
         runner = web.AppRunner(app)
@@ -5805,16 +6490,7 @@ async def main():
         dp.include_router(fallback_router)
         me = await bot.get_me()
         BOT_USERNAME = me.username
-        try:
-            from aiogram.types import MenuButtonWebApp, WebAppInfo
-            await bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(
-                    text="🎬 WebApp",
-                    web_app=WebAppInfo(url=config.WEBAPP_URL)
-                )
-            )
-        except Exception:
-            pass
+        await _sync_telegram_webapp_menu()
         # Barcha mavjud Premium foydalanuvchilarga Mavzuli Guruhda (-1002748514315) avtomatik PREMIUM tegini sinxronlash
         try:
             vips = await db.get_all_premium_users()
@@ -5833,6 +6509,10 @@ async def main():
         await dp.start_polling(bot, handle_as_tasks=True, allowed_updates=allowed)
     finally:
         cleanup_pid()
+        try:
+            await ai_service.close_http_session()
+        except Exception:
+            pass
         try:
             await bot.session.close()
         except Exception:

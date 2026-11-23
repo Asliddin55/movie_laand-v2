@@ -23,37 +23,6 @@ def _detect_custom_emoji_id(text: str) -> str | None:
     return None
 
 
-def _auto_detect_style(text: str, kwargs: dict) -> str | None:
-    """Tugma vazifasiga qarab avtomatik rang (primary=ko'k, success=yashil, danger=qizil) beradi."""
-    if not text:
-        return None
-    cb = str(kwargs.get("callback_data") or "")
-    siq = kwargs.get("switch_inline_query_current_chat")
-
-    if kwargs.get("web_app") is not None:
-        return "primary"
-    if siq == "":
-        return "success"
-    if siq == "top":
-        return "danger"
-    if siq in ("new", "serial"):
-        return "primary"
-
-    if any(k in text for k in ("▶️", "✅", "🟢", "🎁", "Kunlik Bonus", "Ежедневный бонус", "Tekshirish", "Проверить")):
-        return "success"
-    if any(k in text for k in ("🗑", "❌", "🛑", "🚫", "🔴", "🔥", "Rad etish", "O'chirish", "tozalash")):
-        return "danger"
-    if any(k in text for k in ("💎", "👑", "📢", "🌐", "🖼", "➕", "↗️", "⏩", "Keyingi", "Следующая", "📱", "📡", "🪄")):
-        return "primary"
-    if cb.startswith(("watch:", "check_sub", "sadm_pay_ok", "claim_daily", "done_order")):
-        return "success"
-    if cb.startswith(("delmov:", "sadm_pay_reject", "btn_shutdown_bot", "clear_movies")):
-        return "danger"
-    if cb.startswith(("open_vip_shop", "buy_vip:", "autopost", "editpic:", "addep:")):
-        return "primary"
-    return None
-
-
 def ibtn(text: str, style: str | None = None, icon_custom_emoji_id: str | None = "AUTO", **kwargs) -> InlineKeyboardButton:
     """Simmetrik rangli (style) va Premium Custom Emojili (icon_custom_emoji_id) Inline tugma yaratuvchi."""
     if icon_custom_emoji_id == "AUTO":
@@ -84,8 +53,8 @@ def language_select_inline(movie_code: str = None):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                ibtn(text="🇺🇿 O'zbek tili", callback_data=f"set_lang:uz{suffix}", style="success"),
-                ibtn(text="🇷🇺 Русский язык", callback_data=f"set_lang:ru{suffix}", style="primary")
+                ibtn(text="🇺🇿 O'zbek tili", callback_data=f"set_lang:uz{suffix}", style="primary"),
+                ibtn(text="🇷🇺 Русский язык", callback_data=f"set_lang:ru{suffix}")
             ]
         ]
     )
@@ -93,14 +62,10 @@ def language_select_inline(movie_code: str = None):
 
 # ===================== 1. FOYDALANUVCHI IXCHAM REPLY VA INLINE PANELI (UZ / RU) =====================
 def user_main_keyboard(role: str = "user", lang: str = "uz"):
-    """
-    Pastki Reply tugmalardan oddiy «🔍 Kino qidirish» butkul olib tashlandi!
-    Qidiruv faqat Inline Katalog va WebApp orqali ishlaydi.
-    """
     lang = "ru" if lang == "ru" else "uz"
     kb = [
         [
-            kbtn(text=BTN["cabinet"][lang], style="primary"),
+            kbtn(text=BTN["cabinet"][lang]),
             kbtn(text=BTN["lang"][lang])
         ]
     ]
@@ -114,26 +79,19 @@ def user_main_keyboard(role: str = "user", lang: str = "uz"):
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 
-def user_inline_dashboard(lang: str = "uz"):
-    """Bosh sahifadagi simmetrik, estetik va mukammal Inline Menyu."""
+def user_inline_dashboard(lang: str = "uz", webapp_url: str = None):
+    """Bosh sahifadagi ixcham, simmetrik, toza rangli Ultimate Inline Menyu."""
     lang = "ru" if lang == "ru" else "uz"
-    inline_search_lbl = (
-        "🔍 Инлайн Каталог (С постерами)"
-        if lang == "ru"
-        else "🔍 Inline Katalog (Rasmli Qidiruv)"
-    )
-    webapp_lbl = (
-        "📱 Movie Land WebApp"
-        if lang == "ru"
-        else "📱 Movie Land WebApp"
-    )
+    search_lbl = "🔍 Поиск фильмов" if lang == "ru" else "🔍 Kino qidirish"
+    webapp_lbl = "🎬 Movie Land WebApp"
+    w_url = (webapp_url or config.WEBAPP_URL).strip()
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                ibtn(text=inline_search_lbl, switch_inline_query_current_chat="", style="primary")
+                ibtn(text=search_lbl, switch_inline_query_current_chat="", style="primary")
             ],
             [
-                ibtn(text=webapp_lbl, web_app=WebAppInfo(url=config.WEBAPP_URL), style="primary")
+                ibtn(text=webapp_lbl, web_app=WebAppInfo(url=w_url), style="success")
             ],
             [
                 ibtn(text=BTN["top"][lang], switch_inline_query_current_chat="top"),
@@ -222,13 +180,13 @@ def super_admin_keyboard():
         keyboard=[
             [kbtn(text="🗂 Arxiv boshqaruvi va Chala postlar"), kbtn(text="📥 Bazadan Kino yuklash")],
             [kbtn(text="📺 Bazadan Serial yuklash"), kbtn(text="🗑 Faqat kinolar bazasini tozalash")],
-            [kbtn(text="🖥 Server Holati va CPU Analiz"), kbtn(text="🧹 Kesh va __pycache__ tozalash")],
+            [kbtn(text="🌐 WebApp Admin", style="primary"), kbtn(text="🖥 Server Holati va CPU Analiz")],
             [kbtn(text="👁 Kinolarga Ko'rish qo'shish"), kbtn(text="📊 Kengaytirilgan Statistika")],
             [kbtn(text="🌐 Mavzuli Guruh Boshqaruvi"), kbtn(text="💎 VIP, Narxlar va Bonuslar")],
             [kbtn(text="👮 Lavozim va Ruxsatlar"), kbtn(text="🧠 Top-15 AI Tizimi")],
             [kbtn(text="💾 Backup va Export/Import"), kbtn(text="⚙️ Texnik Sozlamalar va Himoya")],
-            [kbtn(text="🔐 Super-Parolni o'zgartirish"), kbtn(text="🏠 Foydalanuvchi menyusi", style="success")],
-            [kbtn(text="👮 Admin Panel", style="primary")]
+            [kbtn(text="🧹 Kesh va __pycache__ tozalash"), kbtn(text="🔐 Super-Parolni o'zgartirish")],
+            [kbtn(text="👮 Admin Panel", style="primary"), kbtn(text="🏠 Foydalanuvchi menyusi", style="success")]
         ],
         resize_keyboard=True
     )
@@ -541,6 +499,14 @@ def staff_control_menu_inline(staff_list: list):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def staff_permissions_inline(target_id: int, current_role: str, user_perms: list):
+    if int(target_id) in getattr(config, "OWNER_IDS", {6188085308}):
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [ibtn(text="👑 Bot Egasi — Doimiy Super Administrator", callback_data="noop", style="success")],
+                [ibtn(text="🔒 O'z lavozimini o'zgartirish himoyalangan", callback_data="noop")],
+                [ibtn(text="🔙 Orqaga", callback_data="sadm_back_staff")]
+            ]
+        )
     buttons = [
         [
             ibtn(
@@ -953,29 +919,21 @@ def movie_action_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def movies_list_inline(movies: list, title_prefix: str = "🎬", lang: str = "uz", query: str = ""):
-    search_lbl = (
-        "🔍 Инлайн Каталог (С постерами)"
-        if lang == "ru"
-        else "🔍 Inline Qidiruv (Rasmli Katalog)"
-    )
+    search_lbl = "🔍 Поиск фильмов" if lang == "ru" else "🔍 Kino qidirish"
     back_txt = "🔙 Назад" if lang == "ru" else "🔙 Orqaga"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [ibtn(text=search_lbl, switch_inline_query_current_chat=query, style="success")],
+            [ibtn(text=search_lbl, switch_inline_query_current_chat=query, style="primary")],
             [ibtn(text=back_txt, callback_data="back_main_menu")]
         ]
     )
 
 def movies_catalog_paginated_inline(movies: list = None, page: int = 1, total_pages: int = 1, lang: str = "uz"):
-    search_lbl = (
-        "🔍 Инлайн Каталог (С постерами)"
-        if lang == "ru"
-        else "🔍 Inline Qidiruv (Rasmli Katalog)"
-    )
+    search_lbl = "🔍 Поиск фильмов" if lang == "ru" else "🔍 Kino qidirish"
     back_txt = "🔙 Назад" if lang == "ru" else "🔙 Orqaga"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [ibtn(text=search_lbl, switch_inline_query_current_chat="", style="success")],
+            [ibtn(text=search_lbl, switch_inline_query_current_chat="", style="primary")],
             [ibtn(text=back_txt, callback_data="back_main_menu")]
         ]
     )
@@ -1007,4 +965,45 @@ def order_admin_keyboard(order_id: int, user_id: int, status: str = "pending"):
         ibtn(text="✉️ Javob yuborish", callback_data=f"ans_order:{order_id}:{user_id}", style="primary"),
         ibtn(text="✅ Bajarildi", callback_data=f"done_order:{order_id}", style="success")
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ===================== 12. WEBAPP ADMIN PANELI (/web_admin — BOT ICHIDA) =====================
+def web_admin_panel_inline(webapp_enabled: str, webapp_url: str, trailers_cnt: int = 0):
+    st_lbl = "🟢 WebApp Faol" if webapp_enabled == "1" else "🔴 WebApp O'chirilgan"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [ibtn(text="🎬 WebApp ni ochib ko'rish", web_app=WebAppInfo(url=webapp_url), style="success")],
+            [
+                ibtn(text=st_lbl, callback_data="wadm_toggle_status"),
+                ibtn(text=f"🎞 Treylerlar ({trailers_cnt})", callback_data="wadm_trailers", style="primary")
+            ],
+            [
+                ibtn(text="🔗 Domen / URL", callback_data="wadm_set_url"),
+                ibtn(text="🏷 Sarlavha & Slogan", callback_data="wadm_set_title")
+            ],
+            [
+                ibtn(text="📣 E'lon / Banner", callback_data="wadm_set_banner"),
+                ibtn(text="💎 VIP & Referal narxlar", callback_data="wadm_vip_prices")
+            ],
+            [
+                ibtn(text="📊 WebApp Statistika", callback_data="wadm_stats"),
+                ibtn(text="🔄 Menyuni sinxronlash", callback_data="wadm_sync_menu", style="primary")
+            ],
+            [
+                ibtn(text="🔐 WebAdmin Parol", callback_data="wadm_change_pass", style="danger")
+            ]
+        ]
+    )
+
+
+def web_admin_trailers_inline(trailers: list):
+    rows = [
+        [ibtn(text="➕ Yangi treyler qo'shish", callback_data="wadm_trailer_add", style="success")]
+    ]
+    for tr in trailers[:15]:
+        rows.append([
+            ibtn(text=f"🗑 {tr['title']} ({tr.get('year', '')})", callback_data=f"wadm_trailer_del:{tr['id']}", style="danger")
+        ])
+    rows.append([ibtn(text="🔙 WebApp Admin menyusi", callback_data="wadm_back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

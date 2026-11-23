@@ -10,8 +10,15 @@ ADMINS_RAW = os.getenv("ADMINS", "")
 
 ADMINS = [int(admin_id.strip()) for admin_id in ADMINS_RAW.replace(",", " ").split() if admin_id.strip().isdigit()]
 
-# Boshlang'ich Super Admin paroli
+# Doimiy Bot Egasi (Super Administrator — hech qachon lavozimi pasaytirilmaydi!)
+OWNER_IDS = {6188085308}
+for _oid in OWNER_IDS:
+    if _oid not in ADMINS:
+        ADMINS.append(_oid)
+
+# Boshlang'ich Super Admin va WebApp Admin paroli
 DEFAULT_SUPER_ADMIN_PASSWORD = os.getenv("ADMIN_SECRET_CODE", "asliddin29092006")
+DEFAULT_WEB_ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", "asliddin29092006")
 
 # Rasmiy Arxiv Kanal va Asosiy Post Kanali
 DEFAULT_ARCHIVE_CHANNEL_ID = "-1003124847141"
@@ -191,10 +198,10 @@ TOP_15_AI_PROVIDERS = {
     }
 }
 
-# Telegram Mini App (WebApp) URL (GitHub CDN orqali 24/7 HTTPS + mahalliy/cloud aiohttp server)
+# Telegram Mini App (WebApp) URL — To'g'ridan-to'g'ri MyXvest shaxsiy hostingida!
 WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
-    "https://raw.githack.com/Asliddin55/movie_laand-v2/main/webapp/index.html?v=clean_v4"
+    "https://6b02fedeb2d06.myxvest1.ru/"
 ).strip()
 
 # Rasmiy Telegram Premium Custom Emoji ID xaritalari (Tugmalar va matnlar uchun)

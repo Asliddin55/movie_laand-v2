@@ -1,1174 +1,2626 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="uz" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>MOVIE LAND ULTRA — Telegram Mini App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Movie Land — O'zbek tilidagi kinolar</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #06080f;
-      --bg-card: rgba(17, 23, 38, 0.78);
-      --bg-glass: rgba(15, 20, 34, 0.85);
+      --bg: #0b0c10;
+      --bg-elev: #12141b;
+      --card: #161822;
+      --card-2: #1c1f2b;
+      --input-bg: #151720;
       --border: rgba(255, 255, 255, 0.08);
-      --border-hi: rgba(56, 189, 248, 0.35);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --primary: #3b82f6;
-      --primary-glow: rgba(59, 130, 246, 0.45);
-      --emerald: #10b981;
-      --emerald-glow: rgba(16, 185, 129, 0.4);
-      --crimson: #ef4444;
-      --gold: #f59e0b;
-      --radius: 18px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: radial-gradient(circle at 50% -10%, #16223f 0%, var(--bg) 55%);
-      color: var(--text);
-      min-height: 100vh;
-      padding-bottom: 88px;
-      overflow-x: hidden;
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --text: #f5f6fa;
+      --text-2: #c5cad8;
+      --muted: #8a90a6;
+      --accent: #e5483b;
+      --accent-hover: #f25547;
+      --accent-soft: rgba(229, 72, 59, 0.15);
+      --accent-border: rgba(229, 72, 59, 0.45);
+      --gold: #fbbf24;
+      --dock-bg: rgba(20, 22, 30, 0.92);
+      --header-bg: rgba(11, 12, 16, 0.86);
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.48);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
     }
 
-    /* TOP AUTH HEADER */
+    [data-theme="light"] {
+      --bg: #f5f6fa;
+      --bg-elev: #ffffff;
+      --card: #ffffff;
+      --card-2: #eef0f6;
+      --input-bg: #f0f2f7;
+      --border: rgba(15, 23, 42, 0.08);
+      --border-strong: rgba(15, 23, 42, 0.15);
+      --text: #0f172a;
+      --text-2: #334155;
+      --muted: #64748b;
+      --accent: #e5483b;
+      --accent-hover: #d63b2e;
+      --accent-soft: rgba(229, 72, 59, 0.1);
+      --accent-border: rgba(229, 72, 59, 0.4);
+      --dock-bg: rgba(255, 255, 255, 0.94);
+      --header-bg: rgba(245, 246, 250, 0.88);
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background 0.25s ease, color 0.25s ease;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+    input { font-family: inherit; }
+
+    /* Scrollbar hide helper */
+    .no-scroll::-webkit-scrollbar { display: none; }
+    .no-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* ==================== CONTAINER ==================== */
+    .container {
+      width: 100%;
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 0 14px;
+    }
+    @media (min-width: 768px) {
+      .container { padding: 0 28px; }
+    }
+
+    /* ==================== ANNOUNCEMENT BANNER ==================== */
+    .promo-banner {
+      display: none;
+      background: linear-gradient(90deg, rgba(229, 72, 59, 0.18), rgba(229, 72, 59, 0.08));
+      border-bottom: 1px solid var(--accent-border);
+      padding: 8px 14px;
+      text-align: center;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .promo-banner.show { display: block; }
+
+    /* ==================== STICKY TOP HEADER ==================== */
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 50;
+      z-index: 60;
+      background: var(--header-bg);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(6, 8, 15, 0.82);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      height: 62px;
+    }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
+      cursor: pointer;
     }
     .brand-logo {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #2563eb, #10b981);
+      width: 36px;
+      height: 36px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #ff5e4d 0%, #e5483b 48%, #7c3aed 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
-      box-shadow: 0 4px 16px var(--primary-glow);
+      font-size: 18px;
+      box-shadow: 0 4px 14px rgba(229, 72, 59, 0.35);
+      flex-shrink: 0;
+    }
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
     }
     .brand-title {
+      font-size: 15.5px;
       font-weight: 800;
-      font-size: 15px;
-      letter-spacing: 0.4px;
-      background: linear-gradient(90deg, #fff, #93c5fd);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
     }
     .brand-sub {
       font-size: 11px;
-      color: var(--emerald);
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 4px;
+      color: var(--muted);
+      font-weight: 500;
+      display: none;
     }
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    @media (min-width: 640px) {
+      .brand-sub { display: block; }
     }
-    .lang-btn {
-      background: rgba(255,255,255,0.07);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 6px 10px;
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .user-pill {
-      display: flex;
+
+    .bonus-pill {
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid var(--border);
-      padding: 4px 10px 4px 4px;
+      gap: 5px;
+      padding: 6px 12px;
       border-radius: 999px;
-      cursor: pointer;
+      border: 1.5px solid var(--accent-border);
+      background: var(--accent-soft);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 700;
+      transition: transform 0.15s ease, background 0.15s ease;
+      white-space: nowrap;
     }
-    .user-avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    .bonus-pill:hover { background: rgba(229, 72, 59, 0.25); transform: translateY(-1px); }
+
+    .desktop-nav {
+      display: none;
+      align-items: center;
+      gap: 24px;
+      margin-left: auto;
+      margin-right: 12px;
+    }
+    @media (min-width: 900px) {
+      .desktop-nav { display: flex; }
+    }
+    .desktop-nav button {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 8px 2px;
+      position: relative;
+      transition: color 0.18s;
+    }
+    .desktop-nav button:hover,
+    .desktop-nav button.active { color: var(--text); }
+    .desktop-nav button.active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -2px;
+      height: 2.5px;
+      border-radius: 3px;
+      background: var(--accent);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 11px;
+      background: var(--card);
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 700;
-      font-size: 12px;
-      object-fit: cover;
+      color: var(--text-2);
+      transition: border-color 0.18s, background 0.18s, color 0.18s;
     }
-    .user-name {
-      font-size: 12px;
+    .icon-btn:hover { border-color: var(--accent-border); color: var(--text); }
+    .icon-btn svg { width: 17px; height: 17px; stroke-width: 2; }
+
+    /* ==================== VIEWS ==================== */
+    .main-wrap {
+      padding-top: 14px;
+      padding-bottom: 108px;
+    }
+    @media (min-width: 900px) {
+      .main-wrap { padding-top: 22px; padding-bottom: 72px; }
+    }
+    .view { display: none; animation: fadeIn 0.22s ease; }
+    .view.active { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ==================== HERO SEARCH CARD ==================== */
+    .hero-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 10px;
+      margin-bottom: 14px;
+    }
+    .hero-left { display: none; }
+    .hero-right { display: none; }
+
+    .search-box {
+      display: flex;
+      align-items: center;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      height: 46px;
+      transition: border-color 0.2s;
+    }
+    .search-box:focus-within { border-color: var(--accent-border); }
+    .search-box .search-ic {
+      padding: 0 10px 0 14px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+    }
+    .search-box input {
+      flex: 1;
+      height: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 14px;
+      min-width: 0;
+    }
+    .search-box input::placeholder { color: var(--muted); }
+    .search-submit {
+      width: 50px;
+      height: 100%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.18s;
+    }
+    .search-submit:hover { background: var(--accent-hover); }
+
+    @media (min-width: 900px) {
+      .hero-card {
+        padding: 26px 28px;
+        display: grid;
+        grid-template-columns: 1.05fr 1.35fr 1fr;
+        align-items: center;
+        gap: 24px;
+        margin-bottom: 18px;
+      }
+      .hero-left { display: block; }
+      .hero-kicker {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .hero-title {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.12;
+        letter-spacing: -0.025em;
+        margin-bottom: 6px;
+      }
+      .hero-title span { color: var(--accent); }
+      .hero-caption {
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .hero-right {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 7px;
+      }
+      .bot-cta-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        height: 48px;
+        border-radius: 14px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        box-shadow: 0 8px 22px rgba(229, 72, 59, 0.34);
+        transition: transform 0.16s, background 0.16s;
+      }
+      .bot-cta-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+      .hero-note {
+        font-size: 11px;
+        color: var(--muted);
+        text-align: center;
+      }
+    }
+
+    /* ==================== GENRE PILLS STRIP ==================== */
+    .genre-pills-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+    .genre-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 36px 2px 0;
+      scroll-behavior: smooth;
+      width: 100%;
+    }
+    .pill-chip {
+      flex-shrink: 0;
+      padding: 8px 15px;
+      border-radius: 999px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.18s ease;
+    }
+    .pill-chip:hover { border-color: var(--border-strong); color: var(--text); }
+    .pill-chip.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(229, 72, 59, 0.32);
+    }
+    .pills-next-btn {
+      position: absolute;
+      right: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--card-2);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text);
+      box-shadow: -8px 0 18px var(--bg);
+    }
+
+    /* ==================== HOW IT WORKS STRIP (DESKTOP) ==================== */
+    .how-strip {
+      display: none;
+    }
+    @media (min-width: 900px) {
+      .how-strip {
+        display: block;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px 22px;
+        margin-bottom: 24px;
+      }
+      .how-title {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        color: var(--text);
+      }
+      .how-steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .how-step {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        font-size: 13px;
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .how-num {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-border);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 800;
+        flex-shrink: 0;
+      }
+    }
+
+    /* ==================== SECTION HEADERS ==================== */
+    .sec-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 13px;
+    }
+    .sec-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .sec-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(229, 72, 59, 0.22);
+      flex-shrink: 0;
+    }
+    .sec-icon-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .sec-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.015em;
+    }
+    .sec-more {
+      padding: 6px 13px;
+      border-radius: 999px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      font-size: 12.5px;
       font-weight: 700;
-      max-width: 95px;
+      transition: border-color 0.16s, background 0.16s;
+      white-space: nowrap;
+    }
+    .sec-more:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+
+    /* ==================== TRAILERS CIRCULAR ROW ==================== */
+    .trailers-section { margin-bottom: 24px; }
+    .trailers-row {
+      display: flex;
+      gap: 14px;
+      overflow-x: auto;
+      padding: 4px 2px 6px;
+    }
+    .trailer-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      width: 82px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .trailer-ring {
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      padding: 3px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.22), rgba(229,72,59,0.55));
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+    }
+    .trailer-item:hover .trailer-ring {
+      transform: scale(1.05);
+      box-shadow: 0 0 18px rgba(229, 72, 59, 0.35);
+    }
+    .trailer-thumb {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2.5px solid var(--bg);
+      background: var(--card-2);
+      display: block;
+    }
+    .trailer-play-mini {
+      position: absolute;
+      right: 1px;
+      bottom: 1px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8px;
+      border: 2px solid var(--bg);
+    }
+    .trailer-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-2);
+      text-align: center;
+      width: 100%;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    /* HERO SPOTLIGHT */
-    .hero-wrap {
-      padding: 14px 16px 6px;
-    }
-    .hero-card {
-      position: relative;
-      height: 220px;
-      border-radius: 22px;
-      overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.14);
-      box-shadow: 0 14px 36px rgba(0,0,0,0.65);
-      background: #0f172a;
-      cursor: pointer;
-    }
-    .hero-bg {
-      position: absolute;
-      inset: 0;
-      background-size: cover;
-      background-position: center 25%;
-      filter: brightness(0.75);
-      transition: transform 0.5s ease;
-    }
-    .hero-overlay {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(6,8,15,0.1) 0%, rgba(6,8,15,0.94) 92%);
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      padding: 16px;
-    }
-    .hero-badges {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 6px;
-      flex-wrap: wrap;
-    }
-    .badge {
-      padding: 3px 8px;
-      border-radius: 8px;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-    }
-    .badge-green { background: rgba(16, 185, 129, 0.22); color: #34d399; border: 1px solid rgba(16,185,129,0.4); }
-    .badge-blue { background: rgba(59, 130, 246, 0.25); color: #60a5fa; border: 1px solid rgba(59,130,246,0.4); }
-    .badge-gold { background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); }
-    .badge-red { background: rgba(239, 68, 68, 0.24); color: #f87171; border: 1px solid rgba(239,68,68,0.4); }
-    .hero-title {
-      font-size: 20px;
-      font-weight: 800;
-      line-height: 1.2;
-      margin-bottom: 4px;
-    }
-    .hero-meta {
-      font-size: 12px;
-      color: #cbd5e1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .hero-play-btn {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: #fff;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 800;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      box-shadow: 0 4px 15px var(--emerald-glow);
-      cursor: pointer;
-    }
-
-    /* SEARCH BAR */
-    .search-box {
-      padding: 10px 16px 6px;
-    }
-    .search-inner {
-      position: relative;
-      display: flex;
-      align-items: center;
-      background: rgba(17, 24, 39, 0.85);
-      border: 1px solid var(--border);
-      border-radius: 15px;
-      padding: 0 12px;
-      transition: border-color 0.2s;
-    }
-    .search-inner:focus-within {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
-    }
-    .search-icon { font-size: 16px; margin-right: 8px; opacity: 0.7; }
-    .search-input {
-      width: 100%;
-      background: transparent;
-      border: none;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 14px;
-      padding: 12px 0;
-      outline: none;
-    }
-    .search-clear {
-      background: rgba(255,255,255,0.1);
-      border: none;
-      color: var(--muted);
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      font-size: 12px;
-      cursor: pointer;
-      display: none;
-    }
-
-    /* CATEGORY TABS */
-    .chips-scroll {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding: 8px 16px 12px;
-      scrollbar-width: none;
-    }
-    .chips-scroll::-webkit-scrollbar { display: none; }
-    .chip {
-      flex-shrink: 0;
-      padding: 8px 14px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 700;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--border);
-      color: #cbd5e1;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .chip.active {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: #fff;
-      border-color: #60a5fa;
-      box-shadow: 0 4px 12px var(--primary-glow);
-    }
-    .chip.active-green {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: #fff;
-      border-color: #34d399;
-      box-shadow: 0 4px 12px var(--emerald-glow);
-    }
-    .chip.active-red {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: #fff;
-      border-color: #f87171;
-    }
-
-    /* SECTION HEADER */
-    .sec-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 4px 16px 10px;
-    }
-    .sec-title {
-      font-size: 15px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .sec-count {
-      font-size: 11px;
-      color: var(--muted);
-      background: rgba(255,255,255,0.05);
-      padding: 3px 9px;
-      border-radius: 99px;
-      font-weight: 700;
-    }
-
-    /* MOVIE POSTER GRID */
-    .grid {
+    /* ==================== MOVIE POSTER CARDS ==================== */
+    .movies-section { margin-bottom: 26px; }
+    .movies-rail {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 13px;
-      padding: 0 16px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
     }
-    @media (min-width: 600px) {
-      .grid { grid-template-columns: repeat(3, 1fr); }
+    @media (min-width: 560px) {
+      .movies-rail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
     }
-    .m-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      overflow: hidden;
+    @media (min-width: 820px) {
+      .movies-rail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+    }
+    @media (min-width: 1100px) {
+      .movies-rail { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+    }
+
+    .movie-card {
+      cursor: pointer;
       display: flex;
       flex-direction: column;
-      cursor: pointer;
-      transition: transform 0.2s, border-color 0.2s;
-      position: relative;
+      gap: 7px;
+      transition: transform 0.2s ease;
     }
-    .m-card:active { transform: scale(0.97); }
-    .m-poster-wrap {
+    .movie-card:hover { transform: translateY(-3px); }
+
+    .poster-wrap {
       position: relative;
       width: 100%;
-      aspect-ratio: 2 / 2.85;
-      background: #0f172a;
+      aspect-ratio: 2 / 3;
+      border-radius: 15px;
       overflow: hidden;
+      background: linear-gradient(155deg, #1b1e2b, #10121a);
+      border: 1px solid var(--border);
     }
-    .m-poster {
+    .poster-img {
       width: 100%;
       height: 100%;
       object-fit: cover;
       display: block;
+      transition: transform 0.35s ease;
     }
-    .m-code-pill {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      background: rgba(6, 8, 15, 0.85);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(255,255,255,0.18);
-      color: #38bdf8;
-      font-size: 11px;
-      font-weight: 800;
-      padding: 3px 8px;
-      border-radius: 8px;
-    }
-    .m-fav-btn {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: rgba(6, 8, 15, 0.78);
-      border: 1px solid rgba(255,255,255,0.15);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      z-index: 3;
-    }
-    .m-fav-btn.saved { color: #fbbf24; border-color: #fbbf24; }
-    .m-ep-pill {
-      position: absolute;
-      bottom: 8px;
-      left: 8px;
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 7px;
-      border-radius: 6px;
-    }
-    .m-rate-pill {
-      position: absolute;
-      bottom: 8px;
-      right: 8px;
-      background: rgba(6, 8, 15, 0.85);
-      color: #fbbf24;
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 7px;
-      border-radius: 6px;
-    }
-    .m-body {
-      padding: 10px;
+    .movie-card:hover .poster-img { transform: scale(1.04); }
+    .poster-fallback {
+      width: 100%;
+      height: 100%;
       display: flex;
       flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px;
+      text-align: center;
+      background: radial-gradient(circle at 30% 20%, rgba(229,72,59,0.22), transparent 60%), #151722;
+      color: var(--text-2);
+    }
+    .poster-fallback .pf-ic { font-size: 30px; }
+    .poster-fallback .pf-tx { font-size: 12px; font-weight: 700; line-height: 1.25; }
+
+    .poster-grad {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, transparent 28%, transparent 62%, rgba(0,0,0,0.88) 100%);
+      pointer-events: none;
+    }
+    .badge-tl {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      padding: 3px 7px;
+      border-radius: 8px;
+      background: rgba(11, 12, 16, 0.78);
+      backdrop-filter: blur(8px);
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .badge-tl .star { color: var(--gold); }
+    .badge-tr {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      padding: 3px 7px;
+      border-radius: 8px;
+      background: rgba(11, 12, 16, 0.78);
+      backdrop-filter: blur(8px);
+      font-size: 11px;
+      font-weight: 700;
+      color: #e2e8f0;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .poster-foot {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 4px;
     }
-    .m-title {
+    .bot-watermark {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.85);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bot-watermark .wm-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+    .code-tag {
+      padding: 2px 7px;
+      border-radius: 7px;
+      background: rgba(11, 12, 16, 0.85);
+      border: 1px solid rgba(255,255,255,0.14);
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .serial-pill {
+      position: absolute;
+      left: 8px;
+      bottom: 32px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(229, 72, 59, 0.9);
+      color: #fff;
+      font-size: 9.5px;
+      font-weight: 800;
+    }
+
+    .movie-meta-below {
+      padding: 0 2px;
+    }
+    .movie-name {
       font-size: 13px;
       font-weight: 700;
-      line-height: 1.3;
-      display: -webkit-box;
-      -webkit-line-clamp: 1;
-      -webkit-box-orient: vertical;
+      color: var(--text);
+      white-space: nowrap;
       overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
     }
-    .m-sub {
+    .movie-sub {
       font-size: 11px;
       color: var(--muted);
+      margin-top: 2px;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
-    /* PROFILE VIEW */
-    .profile-view {
-      display: none;
-      padding: 16px;
+    /* ==================== GENRES PAGE (SCREENSHOT 3 EXACT STYLE) ==================== */
+    .page-head {
+      margin-bottom: 18px;
     }
-    .prof-card {
-      background: linear-gradient(145deg, rgba(30,41,59,0.75), rgba(15,23,42,0.9));
-      border: 1px solid var(--border-hi);
-      border-radius: 22px;
-      padding: 20px;
-      text-align: center;
-      margin-bottom: 16px;
-    }
-    .prof-avatar {
-      width: 72px;
-      height: 72px;
-      border-radius: 50%;
-      margin: 0 auto 10px;
-      background: linear-gradient(135deg, #3b82f6, #10b981);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
+    .page-head h1 {
+      font-size: 26px;
       font-weight: 800;
-      border: 3px solid rgba(56,189,248,0.4);
-      object-fit: cover;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
     }
-    .prof-name { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
-    .prof-id { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-    .prof-stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 14px;
+    .page-head p {
+      font-size: 13px;
+      color: var(--muted);
     }
-    .stat-box {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 10px 6px;
-    }
-    .stat-val { font-size: 16px; font-weight: 800; color: #38bdf8; }
-    .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
-    .action-list {
+
+    .genres-hero-stack {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-    }
-    .act-btn {
-      width: 100%;
-      padding: 14px 16px;
-      border-radius: 15px;
-      border: 1px solid var(--border);
-      background: var(--bg-card);
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: pointer;
-    }
-
-    /* MOVIE DETAIL MODAL (BOTTOM SHEET) */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.75);
-      backdrop-filter: blur(8px);
-      z-index: 100;
-      display: none;
-      align-items: flex-end;
-      justify-content: center;
-    }
-    .modal-backdrop.open { display: flex; }
-    .modal-sheet {
-      width: 100%;
-      max-width: 540px;
-      max-height: 88vh;
-      background: #0b101d;
-      border-top: 1px solid rgba(255,255,255,0.16);
-      border-radius: 26px 26px 0 0;
-      overflow-y: auto;
-      padding: 18px 16px 28px;
-      animation: slideUp 0.25s ease;
-    }
-    @keyframes slideUp {
-      from { transform: translateY(100%); }
-      to { transform: translateY(0); }
-    }
-    .sheet-handle {
-      width: 42px;
-      height: 5px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 99px;
-      margin: 0 auto 14px;
-    }
-    .sheet-top {
-      display: flex;
       gap: 14px;
       margin-bottom: 14px;
     }
-    .sheet-poster {
-      width: 105px;
-      height: 150px;
-      border-radius: 14px;
-      object-fit: cover;
-      flex-shrink: 0;
-      border: 1px solid rgba(255,255,255,0.14);
+    .genre-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 20px 22px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 132px;
+      transition: transform 0.2s ease, border-color 0.2s ease;
     }
-    .sheet-info {
-      flex: 1;
+    .genre-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.2); }
+    .genre-card.wide { min-height: 148px; padding: 24px 26px; }
+
+    .genre-card-info {
+      position: relative;
+      z-index: 2;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      gap: 6px;
+      gap: 5px;
     }
-    .sheet-title { font-size: 17px; font-weight: 800; line-height: 1.25; }
-    .sheet-meta { font-size: 12px; color: var(--muted); line-height: 1.5; }
-    .sheet-desc {
-      font-size: 12px;
-      color: #cbd5e1;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--border);
-      padding: 10px 12px;
-      border-radius: 12px;
-      margin-bottom: 14px;
-      line-height: 1.45;
+    .genre-card-icon {
+      font-size: 20px;
+      margin-bottom: 4px;
     }
-    .ep-section-title {
-      font-size: 13px;
+    .genre-card-name {
+      font-size: 21px;
       font-weight: 800;
-      margin-bottom: 8px;
-      color: #93c5fd;
-    }
-    .ep-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 7px;
-      margin-bottom: 16px;
-      max-height: 190px;
-      overflow-y: auto;
-    }
-    .ep-btn {
-      padding: 10px 4px;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .ep-btn.active {
-      background: linear-gradient(135deg, #10b981, #059669);
-      border-color: #34d399;
       color: #fff;
+      letter-spacing: -0.015em;
     }
-    .sheet-actions {
+    .genre-card.compact .genre-card-name { font-size: 17px; }
+    .genre-card-count {
+      font-size: 12.5px;
+      font-weight: 700;
+      opacity: 0.92;
+    }
+
+    .genres-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (min-width: 780px) {
+      .genres-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    }
+    .genre-card.compact {
+      min-height: 124px;
+      padding: 16px 18px;
+      align-items: flex-start;
+    }
+
+    /* Fanned tilted mini-poster collage (exact Screenshot 3 signature) */
+    .poster-fan {
+      position: absolute;
+      right: 14px;
+      bottom: -8px;
+      height: 108px;
+      width: 175px;
+      pointer-events: none;
+    }
+    .genre-card.compact .poster-fan {
+      height: 82px;
+      width: 112px;
+      right: 8px;
+      bottom: -10px;
+    }
+    .fan-item {
+      position: absolute;
+      bottom: 0;
+      width: 60px;
+      height: 88px;
+      border-radius: 9px;
+      overflow: hidden;
+      border: 1.5px solid rgba(255, 255, 255, 0.22);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+      background: #171925;
+      transition: transform 0.25s ease;
+    }
+    .genre-card.compact .fan-item {
+      width: 44px;
+      height: 64px;
+      border-radius: 7px;
+    }
+    .fan-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .fan-item:nth-child(1) { right: 98px; transform: rotate(-10deg) translateY(8px); z-index: 1; }
+    .fan-item:nth-child(2) { right: 66px; transform: rotate(-4deg) translateY(2px); z-index: 2; }
+    .fan-item:nth-child(3) { right: 34px; transform: rotate(3deg) translateY(0px); z-index: 3; }
+    .fan-item:nth-child(4) { right: 2px;  transform: rotate(9deg) translateY(6px); z-index: 4; }
+    .genre-card.compact .fan-item:nth-child(1) { right: 54px; transform: rotate(-9deg) translateY(6px); }
+    .genre-card.compact .fan-item:nth-child(2) { right: 28px; transform: rotate(-1deg) translateY(1px); }
+    .genre-card.compact .fan-item:nth-child(3) { right: 2px;  transform: rotate(8deg) translateY(5px); }
+    .genre-card.compact .fan-item:nth-child(4) { display: none; }
+    .genre-card:hover .fan-item:nth-child(2) { transform: rotate(-4deg) translateY(-4px); }
+    .genre-card:hover .fan-item:nth-child(3) { transform: rotate(3deg) translateY(-6px); }
+
+    /* Genre active filter bar */
+    .filter-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--card);
+      border: 1px solid var(--accent-border);
+      border-radius: 14px;
+      padding: 11px 15px;
+      margin-bottom: 16px;
+    }
+    .filter-banner.show { display: flex; }
+
+    /* ==================== SEARCH TAB ==================== */
+    .search-filters {
       display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      margin: 12px 0 18px;
+      padding-bottom: 2px;
+    }
+
+    /* ==================== PROFILE PAGE (USER EXACT SPEC) ==================== */
+    .profile-wrap {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .p-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+    }
+    .p-user-top {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .p-avatar {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #e5483b, #9333ea);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 800;
+      color: #fff;
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 2px solid var(--accent-border);
+    }
+    .p-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .p-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .p-name { font-size: 19px; font-weight: 800; }
+    .p-vip-tag {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #f59e0b, #e5483b);
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 800;
+    }
+    .p-handle { font-size: 13px; color: var(--accent); font-weight: 600; margin-top: 2px; }
+    .p-joined { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    .p-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
       gap: 10px;
     }
-    .btn-watch-main {
-      flex: 1;
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: #fff;
-      border: none;
-      padding: 14px;
+    .p-metric-box {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
       border-radius: 14px;
-      font-family: inherit;
-      font-size: 14px;
+      padding: 13px 14px;
+    }
+    .p-metric-lbl { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 5px; }
+    .p-metric-val { font-size: 17px; font-weight: 800; color: var(--text); }
+
+    /* Premium card */
+    .prem-card {
+      background: linear-gradient(145deg, rgba(229, 72, 59, 0.14) 0%, var(--card) 55%, rgba(124, 58, 237, 0.1) 100%);
+      border: 1px solid var(--accent-border);
+    }
+    .prem-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .prem-title { font-size: 18px; font-weight: 800; }
+    .prem-from { font-size: 12.5px; color: var(--accent); font-weight: 700; }
+    .prem-perks {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 13.5px;
+      color: var(--text-2);
+    }
+    .prem-plans {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .plan-box {
+      background: var(--bg-elev);
+      border: 1.5px solid var(--border);
+      border-radius: 13px;
+      padding: 11px 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.18s, transform 0.15s;
+    }
+    .plan-box.active, .plan-box:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      transform: translateY(-1px);
+    }
+    .plan-dur { font-size: 11.5px; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+    .plan-price { font-size: 15px; font-weight: 800; color: var(--text); }
+    .plan-unit { font-size: 10.5px; color: var(--muted); }
+
+    .btn-primary-full {
+      width: 100%;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14.5px;
       font-weight: 800;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      box-shadow: 0 6px 20px var(--emerald-glow);
-      cursor: pointer;
+      box-shadow: 0 8px 22px rgba(229, 72, 59, 0.34);
+      transition: background 0.16s, transform 0.15s;
     }
-    .btn-close-sheet {
-      background: rgba(255,255,255,0.08);
+    .btn-primary-full:hover { background: var(--accent-hover); transform: translateY(-1px); }
+
+    /* Referral card */
+    .ref-title { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
+    .ref-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; line-height: 1.45; }
+    .ref-link-box {
+      background: var(--input-bg);
+      border: 1px dashed var(--border-strong);
+      border-radius: 12px;
+      padding: 11px 13px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--text-2);
+      word-break: break-all;
+      margin-bottom: 10px;
+    }
+    .ref-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+    .btn-outline {
+      height: 42px;
+      border-radius: 12px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border-strong);
       color: var(--text);
-      border: 1px solid var(--border);
-      padding: 14px 18px;
-      border-radius: 14px;
-      font-family: inherit;
       font-size: 13px;
       font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: border-color 0.16s, background 0.16s;
+    }
+    .btn-outline:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+
+    /* Profile menu rows */
+    .p-menu-list {
+      display: flex;
+      flex-direction: column;
+    }
+    .p-menu-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 4px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
     }
+    .p-menu-row:last-child { border-bottom: none; padding-bottom: 4px; }
+    .p-menu-row:first-child { padding-top: 4px; }
+    .p-menu-left { display: flex; align-items: center; gap: 11px; }
+    .p-menu-right { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 
-    /* BOTTOM NAVIGATION */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 60;
-      background: rgba(6, 8, 15, 0.9);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid var(--border);
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      padding: 8px 10px 14px;
+    /* Toggle switch */
+    .switch {
+      width: 44px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--card-2);
+      border: 1px solid var(--border-strong);
+      position: relative;
+      transition: background 0.2s;
     }
-    .nav-item {
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+    }
+    .switch.on { background: var(--accent); border-color: var(--accent); }
+    .switch.on::after { transform: translateX(20px); }
+
+    /* ==================== FLOATING BOTTOM DOCK (MOBILE) ==================== */
+    .bottom-dock {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      z-index: 70;
+      background: var(--dock-bg);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      padding: 6px 4px 8px;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    @media (min-width: 900px) {
+      .bottom-dock { display: none; }
+    }
+    .dock-btn {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 2px 2px;
       color: var(--muted);
-      font-size: 10px;
+      font-size: 10.5px;
       font-weight: 700;
-      cursor: pointer;
-      padding: 4px 0;
+      position: relative;
+      transition: color 0.18s;
     }
-    .nav-item.active { color: #38bdf8; }
-    .nav-icon { font-size: 18px; }
+    .dock-btn svg { width: 20px; height: 20px; stroke-width: 1.9; }
+    .dock-btn.active { color: var(--accent); }
+    .dock-btn.active::before {
+      content: "";
+      position: absolute;
+      top: -6px;
+      width: 24px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+    }
+
+    /* ==================== FLOATING CHAT FAB & GENRE BOT CTA ==================== */
+    .fab-chat {
+      position: fixed;
+      right: 16px;
+      bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+      z-index: 65;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(229, 72, 59, 0.48);
+      transition: transform 0.18s;
+    }
+    .fab-chat:hover { transform: scale(1.06); }
+    @media (min-width: 900px) {
+      .fab-chat { bottom: 26px; right: 26px; width: 52px; height: 52px; }
+    }
+
+    .floating-bot-pill {
+      position: fixed;
+      right: 88px;
+      bottom: 26px;
+      z-index: 64;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 20px;
+      border-radius: 16px;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 10px 28px rgba(229, 72, 59, 0.42);
+      transition: transform 0.18s;
+    }
+    .floating-bot-pill:hover { transform: translateY(-2px); }
+    .floating-bot-pill .fbp-t { font-size: 13.5px; font-weight: 800; line-height: 1.2; }
+    .floating-bot-pill .fbp-s { font-size: 11px; opacity: 0.88; }
+    @media (min-width: 900px) {
+      .floating-bot-pill.visible { display: flex; }
+    }
+
+    /* ==================== MODAL (MOVIE DETAIL & TRAILER) ==================== */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.74);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0;
+    }
+    @media (min-width: 680px) {
+      .modal-backdrop { align-items: center; padding: 20px; }
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal-sheet {
+      width: 100%;
+      max-width: 560px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: var(--bg-elev);
+      border: 1px solid var(--border-strong);
+      border-radius: 24px 24px 0 0;
+      position: relative;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+      animation: slideUp 0.24s ease;
+    }
+    @media (min-width: 680px) {
+      .modal-sheet { border-radius: 24px; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 5;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(11, 12, 16, 0.75);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      border: 1px solid rgba(255,255,255,0.16);
+    }
+
+    .md-hero {
+      position: relative;
+      padding: 22px 18px 16px;
+      display: flex;
+      gap: 15px;
+      background: linear-gradient(180deg, rgba(229,72,59,0.14), transparent);
+      border-bottom: 1px solid var(--border);
+    }
+    .md-poster {
+      width: 112px;
+      aspect-ratio: 2/3;
+      border-radius: 13px;
+      object-fit: cover;
+      border: 1px solid var(--border-strong);
+      background: var(--card-2);
+      flex-shrink: 0;
+    }
+    .md-info { flex: 1; min-width: 0; padding-right: 26px; }
+    .md-code {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--accent);
+      font-size: 11.5px;
+      font-weight: 800;
+      margin-bottom: 7px;
+    }
+    .md-title {
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+    .md-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .md-badge {
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-2);
+    }
+    .md-body { padding: 16px 18px 22px; }
+    .md-desc {
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--text-2);
+      margin-bottom: 16px;
+      white-space: pre-line;
+    }
+    .ep-section-title {
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+    .ep-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+      gap: 7px;
+      max-height: 168px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+      padding-right: 2px;
+    }
+    .ep-btn {
+      height: 36px;
+      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-size: 13px;
+      font-weight: 700;
+      transition: all 0.15s;
+    }
+    .ep-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .md-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .md-fav-btn {
+      width: 50px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--card);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+      transition: all 0.16s;
+    }
+    .md-fav-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Empty & Maintenance States */
     .empty-state {
-      grid-column: 1 / -1;
       text-align: center;
-      padding: 40px 16px;
+      padding: 46px 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    .empty-state .es-ic { font-size: 42px; margin-bottom: 10px; }
+    .empty-state h3 { font-size: 17px; font-weight: 800; margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; color: var(--muted); max-width: 340px; margin: 0 auto 16px; line-height: 1.5; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 96px;
+      transform: translateX(-50%) translateY(16px);
+      z-index: 200;
+      background: #1e2230;
+      color: #fff;
+      border: 1px solid var(--accent-border);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Footer watermark */
+    .app-footer {
+      text-align: center;
+      font-size: 12px;
       color: var(--muted);
+      margin-top: 28px;
+      padding-bottom: 10px;
+    }
+
+    /* Skeleton loader */
+    .skel-card {
+      aspect-ratio: 2/3;
+      border-radius: 15px;
+      background: linear-gradient(90deg, var(--card) 25%, var(--card-2) 50%, var(--card) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.25s infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
     }
   </style>
 </head>
 <body>
+  <!-- Optional Admin Banner -->
+  <div id="promoBanner" class="promo-banner"></div>
 
-  <!-- TOP AUTH HEADER -->
+  <!-- Sticky Top Bar -->
   <header class="topbar">
-    <div class="brand">
-      <div class="brand-logo">🍿</div>
-      <div>
-        <div class="brand-title">MOVIE LAND ULTRA</div>
-        <div class="brand-sub" id="authBadge">✓ Telegram Auth</div>
+    <div class="container topbar-inner">
+      <div class="brand-group">
+        <div class="brand" onclick="switchView('home')">
+          <div class="brand-logo">🎬</div>
+          <div class="brand-text">
+            <span class="brand-title" id="brandTitle">Movie Land</span>
+            <span class="brand-sub" id="brandSub">O'zbek tilidagi kinolar • 24/7</span>
+          </div>
+        </div>
+        <button class="bonus-pill" onclick="switchView('profile', 'referral')">
+          <span>🎁</span><span>Bonus</span>
+        </button>
       </div>
-    </div>
-    <div class="top-actions">
-      <button class="lang-btn" id="langToggle" onclick="toggleLanguage()">UZ</button>
-      <div class="user-pill" onclick="switchTab('profile')">
-        <img id="userAvatarImg" class="user-avatar" style="display:none" alt="U" />
-        <div id="userAvatarTxt" class="user-avatar">U</div>
-        <span class="user-name" id="userNameTop">Mehmon</span>
+
+      <nav class="desktop-nav" aria-label="Asosiy navigatsiya">
+        <button data-nav="home" class="active" onclick="switchView('home')">Asosiy</button>
+        <button data-nav="genres" onclick="switchView('genres')">Janrlar</button>
+        <button data-nav="favorites" onclick="switchView('favorites')">Sevimli</button>
+        <button data-nav="profile" onclick="switchView('profile')">Profil</button>
+      </nav>
+
+      <div class="header-actions">
+        <button class="icon-btn" title="Saralash / Filtr" onclick="switchView('search')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M7 12h10M10 18h4" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" id="themeToggleBtn" title="Qorong'i / Yorug' rejim" onclick="toggleTheme()">
+          <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" title="Qidiruv" onclick="focusSearch()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- MAIN CATALOG VIEW -->
-  <main id="catalogView">
-    <!-- HERO SPOTLIGHT -->
-    <section class="hero-wrap" id="heroSection">
-      <div class="hero-card" id="heroCard" style="display:none">
-        <div class="hero-bg" id="heroBg"></div>
-        <div class="hero-overlay">
-          <div class="hero-badges" id="heroBadges"></div>
-          <div class="hero-title" id="heroTitle">Yuklanmoqda...</div>
-          <div class="hero-meta">
-            <span id="heroMetaText">HD • O'zbek tilida</span>
-            <button class="hero-play-btn" id="heroPlayBtn">▶️ Ko'rish</button>
+  <!-- Main Content -->
+  <main class="container main-wrap" id="appRoot">
+    <!-- Maintenance View (Hidden unless disabled in /web_admin) -->
+    <section id="view-maintenance" class="view">
+      <div class="empty-state" style="margin-top:40px;">
+        <div class="es-ic">🛠</div>
+        <h3>WebApp vaqtincha texnik tanaffusda</h3>
+        <p>Hozirda yangilanishlar olib borilmoqda. Kinolarni bevosita Telegram botimiz orqali tomosha qilishingiz mumkin!</p>
+        <button class="btn-primary-full" style="max-width:280px;margin:0 auto;" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername)">
+          ✈️ Telegram botni ochish →
+        </button>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 1: ASOSIY (HOME) ==================== -->
+    <section id="view-home" class="view active">
+      <!-- Hero Search -->
+      <div class="hero-card">
+        <div class="hero-left">
+          <div class="hero-kicker">O'ZBEK TILIDA • 24/7</div>
+          <div class="hero-title">Qaysi kinoni<br/><span>izlayapsiz?</span></div>
+          <div class="hero-caption">Nomini yoki kodini yozing</div>
+        </div>
+
+        <form class="search-box" onsubmit="handleHeroSearch(event)">
+          <span class="search-ic">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+          </span>
+          <input id="heroSearchInput" type="search" placeholder="Masalan: Forsaj yoki 125" autocomplete="off" />
+          <button type="submit" class="search-submit" aria-label="Qidirish">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+          </button>
+        </form>
+
+        <div class="hero-right">
+          <button class="bot-cta-btn" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername)">
+            <span>✈️</span><span>Telegram botni ochish</span><span>→</span>
+          </button>
+          <div class="hero-note">Telegram ochiladi — kino botda bir necha soniyada keladi</div>
+        </div>
+      </div>
+
+      <!-- Genre Pills -->
+      <div class="genre-pills-wrap">
+        <div class="genre-pills no-scroll" id="homeGenrePills"></div>
+        <button class="pills-next-btn" aria-label="Keyingi janrlar" onclick="scrollGenrePills()">›</button>
+      </div>
+
+      <!-- How It Works (Desktop) -->
+      <div class="how-strip">
+        <div class="how-title">Qanday ishlaydi?</div>
+        <div class="how-steps">
+          <div class="how-step"><span class="how-num">1</span><span>Kinoni toping</span></div>
+          <div class="how-step"><span class="how-num">2</span><span>Telegram tugmasini bosing</span></div>
+          <div class="how-step"><span class="how-num">3</span><span>Bot kinoni yuboradi</span></div>
+        </div>
+      </div>
+
+      <!-- Active Genre Filter Banner (when user selects a genre) -->
+      <div id="homeFilterBanner" class="filter-banner">
+        <div>
+          <strong id="homeFilterTitle">Janr</strong>
+          <span id="homeFilterCount" style="color:var(--muted);font-size:12.5px;margin-left:6px;"></span>
+        </div>
+        <button class="sec-more" onclick="clearGenreFilter()">✕ Barchasi</button>
+      </div>
+
+      <!-- Tez kunda — treylerlar -->
+      <div class="trailers-section" id="trailersSection">
+        <div class="sec-head">
+          <div class="sec-title-wrap">
+            <span class="sec-dot"></span>
+            <h2 class="sec-title">Tez kunda — treylerlar</h2>
+          </div>
+        </div>
+        <div class="trailers-row no-scroll" id="trailersRow"></div>
+      </div>
+
+      <!-- Yangi qo'shilganlar -->
+      <div class="movies-section">
+        <div class="sec-head">
+          <div class="sec-title-wrap">
+            <span class="sec-icon-badge">✨</span>
+            <h2 class="sec-title" id="latestSectionTitle">Yangi qo'shilganlar</h2>
+          </div>
+          <button class="sec-more" onclick="switchView('search')">Barchasi →</button>
+        </div>
+        <div class="movies-rail" id="latestMoviesGrid">
+          <div class="skel-card"></div><div class="skel-card"></div>
+          <div class="skel-card"></div><div class="skel-card"></div>
+          <div class="skel-card"></div><div class="skel-card"></div>
+        </div>
+      </div>
+
+      <!-- Top Mashhurlari -->
+      <div class="movies-section" id="topMoviesSection" style="display:none;">
+        <div class="sec-head">
+          <div class="sec-title-wrap">
+            <span class="sec-icon-badge">🔥</span>
+            <h2 class="sec-title">Eng ko'p ko'rilganlar</h2>
+          </div>
+          <button class="sec-more" onclick="openSearchPreset('top')">Barchasi →</button>
+        </div>
+        <div class="movies-rail" id="topMoviesGrid"></div>
+      </div>
+
+      <!-- Seriallar -->
+      <div class="movies-section" id="serialsSection" style="display:none;">
+        <div class="sec-head">
+          <div class="sec-title-wrap">
+            <span class="sec-icon-badge">📺</span>
+            <h2 class="sec-title">Seriallar</h2>
+          </div>
+          <button class="sec-more" onclick="openSearchPreset('serial')">Barchasi →</button>
+        </div>
+        <div class="movies-rail" id="serialsGrid"></div>
+      </div>
+
+      <div class="app-footer" id="footerTag">@movieeland_bot</div>
+    </section>
+
+    <!-- ==================== VIEW 2: QIDIRUV ==================== -->
+    <section id="view-search" class="view">
+      <div class="page-head">
+        <h1>Qidiruv</h1>
+        <p id="searchSummary">Kino nomi, janri yoki raqamli kodini kiriting</p>
+      </div>
+      <div class="search-box" style="height:48px;">
+        <span class="search-ic">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+        </span>
+        <input id="searchInput" type="search" placeholder="Masalan: Forsaj, Merlin yoki 125..." oninput="renderSearchResults()" autocomplete="off" />
+        <button class="search-submit" onclick="renderSearchResults()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="search-filters no-scroll">
+        <button class="pill-chip active" data-sf="all" onclick="setSearchFilter('all', this)">Barchasi</button>
+        <button class="pill-chip" data-sf="movies" onclick="setSearchFilter('movies', this)">🎬 Kinolar</button>
+        <button class="pill-chip" data-sf="serial" onclick="setSearchFilter('serial', this)">📺 Seriallar</button>
+        <button class="pill-chip" data-sf="top" onclick="setSearchFilter('top', this)">🔥 Top ko'rilgan</button>
+        <button class="pill-chip" data-sf="rating" onclick="setSearchFilter('rating', this)">⭐ Yuqori IMDb</button>
+      </div>
+      <div class="movies-rail" id="searchResultsGrid"></div>
+    </section>
+
+    <!-- ==================== VIEW 3: JANRLAR (SCREENSHOT 3) ==================== -->
+    <section id="view-genres" class="view">
+      <div class="page-head">
+        <h1>Janrlar</h1>
+        <p id="genresSub">Janrlar yuklanmoqda...</p>
+      </div>
+      <div class="genres-hero-stack" id="genresHeroStack"></div>
+      <div class="genres-grid" id="genresGrid"></div>
+    </section>
+
+    <!-- ==================== VIEW 4: SEVIMLI ==================== -->
+    <section id="view-favorites" class="view">
+      <div class="page-head">
+        <h1>Sevimli kinolar</h1>
+        <p id="favSub">Saqlab qo'yilgan kinolaringiz</p>
+      </div>
+      <div class="movies-rail" id="favoritesGrid"></div>
+    </section>
+
+    <!-- ==================== VIEW 5: PROFIL (EXACT SPEC) ==================== -->
+    <section id="view-profile" class="view">
+      <div class="profile-wrap">
+        <!-- User Info Card -->
+        <div class="p-card">
+          <div class="p-user-top">
+            <div class="p-avatar" id="profAvatar">M</div>
+            <div style="min-width:0;">
+              <div class="p-name-row">
+                <span class="p-name" id="profName">Mehmon</span>
+                <span class="p-vip-tag" id="profVipTag" style="display:none;">💎 VIP</span>
+              </div>
+              <div class="p-handle" id="profHandle">@movieeland_bot</div>
+              <div class="p-joined" id="profJoined">📅 A'zo: —</div>
+            </div>
+          </div>
+          <div class="p-metrics">
+            <div class="p-metric-box">
+              <div class="p-metric-lbl">💰 Balans</div>
+              <div class="p-metric-val" id="profBalance">0 so'm</div>
+            </div>
+            <div class="p-metric-box">
+              <div class="p-metric-lbl">👥 Takliflar</div>
+              <div class="p-metric-val" id="profRefs">0 ta do'st</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Premium Card -->
+        <div class="p-card prem-card">
+          <div class="prem-head">
+            <div class="prem-title">💎 Premium</div>
+            <div class="prem-from" id="premFromPrice">7 000 so'm dan boshlab</div>
+          </div>
+          <div class="prem-perks">
+            <div>🚫 Kanallarga a'zo bo'lish shart emas</div>
+            <div>🎯 Reklamasiz foydalanish</div>
+            <div>⚡ Tezkor qidiruv va yuklash</div>
+          </div>
+          <div class="prem-plans">
+            <div class="plan-box" onclick="selectPlan(this)">
+              <div class="plan-dur">1 hafta</div>
+              <div class="plan-price" id="price7">7 000</div>
+              <div class="plan-unit">so'm</div>
+            </div>
+            <div class="plan-box active" onclick="selectPlan(this)">
+              <div class="plan-dur">1 oy</div>
+              <div class="plan-price" id="price30">20 000</div>
+              <div class="plan-unit">so'm</div>
+            </div>
+            <div class="plan-box" onclick="selectPlan(this)">
+              <div class="plan-dur">3 oy</div>
+              <div class="plan-price" id="price90">30 000</div>
+              <div class="plan-unit">so'm</div>
+            </div>
+          </div>
+          <button class="btn-primary-full" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername + '?start=vip')">
+            💎 Premium olish
+          </button>
+        </div>
+
+        <!-- Referral Card -->
+        <div class="p-card" id="referralCard">
+          <div class="ref-title">Do'stlarni taklif qiling</div>
+          <div class="ref-desc" id="refRewardText">Har bir do'stingiz uchun 1 000 so'm bonus balansingizga tushadi</div>
+          <div class="ref-link-box" id="refLinkBox">t.me/movieeland_bot</div>
+          <div class="ref-actions">
+            <button class="btn-outline" onclick="copyRefLink()">📋 Nusxalash</button>
+            <button class="btn-outline" onclick="shareRefLink()">📤 Ulashish</button>
+          </div>
+        </div>
+
+        <!-- Settings & Links Card -->
+        <div class="p-card">
+          <div class="p-menu-list">
+            <div class="p-menu-row" onclick="switchView('favorites')">
+              <div class="p-menu-left"><span>❤️</span><span>Sevimli kinolar</span></div>
+              <div class="p-menu-right"><span id="profFavCount">0</span><span>›</span></div>
+            </div>
+            <div class="p-menu-row" onclick="switchView('genres')">
+              <div class="p-menu-left"><span>🎭</span><span>Janrlar</span></div>
+              <div class="p-menu-right"><span id="profGenreCount">0</span><span>›</span></div>
+            </div>
+            <div class="p-menu-row" onclick="toggleTheme()">
+              <div class="p-menu-left"><span>🌙</span><span>Qorong'i rejim</span></div>
+              <div class="p-menu-right"><div class="switch on" id="darkModeSwitch"></div></div>
+            </div>
+            <div class="p-menu-row" onclick="returnToBot()">
+              <div class="p-menu-left"><span>✈️</span><span>Botga qaytish</span></div>
+              <div class="p-menu-right"><span>›</span></div>
+            </div>
           </div>
         </div>
       </div>
     </section>
-
-    <!-- SEARCH BAR -->
-    <section class="search-box">
-      <div class="search-inner">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="searchInput" class="search-input" placeholder="Kino kodi (#1) yoki nomini yozing..." oninput="onSearchInput()" />
-        <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
-      </div>
-    </section>
-
-    <!-- CATEGORY PILLS -->
-    <div class="chips-scroll" id="categoryChips">
-      <div class="chip active" data-cat="all" onclick="selectCategory('all', this)">🎬 Barchasi</div>
-      <div class="chip" data-cat="top" onclick="selectCategory('top', this)">🔥 Top Xitlar</div>
-      <div class="chip" data-cat="new" onclick="selectCategory('new', this)">🆕 Premyera</div>
-      <div class="chip" data-cat="serial" onclick="selectCategory('serial', this)">📺 Seriallar</div>
-      <div class="chip" data-cat="fav" onclick="selectCategory('fav', this)">⭐ Sevimlilar</div>
-      <div class="chip" data-cat="Jangari" onclick="selectCategory('Jangari', this)">🔥 Jangari</div>
-      <div class="chip" data-cat="Fantastika" onclick="selectCategory('Fantastika', this)">🚀 Fantastika</div>
-      <div class="chip" data-cat="Qo'rqinchli" onclick="selectCategory('Qo\'rqinchli', this)">🧟 Qo'rqinchli</div>
-      <div class="chip" data-cat="Komediya" onclick="selectCategory('Komediya', this)">😂 Komediya</div>
-      <div class="chip" data-cat="Multfilm" onclick="selectCategory('Multfilm', this)">👶 Multfilm</div>
-    </div>
-
-    <!-- MOVIES GRID -->
-    <div class="sec-head">
-      <div class="sec-title" id="gridSectionTitle">🎬 Kinolar va Seriallar</div>
-      <div class="sec-count" id="gridCount">0 ta</div>
-    </div>
-    <div class="grid" id="moviesGrid"></div>
   </main>
 
-  <!-- PROFILE & AUTH VIEW -->
-  <section class="profile-view" id="profileView">
-    <div class="prof-card">
-      <img id="profAvatarImg" class="prof-avatar" style="display:none" alt="U" />
-      <div id="profAvatarTxt" class="prof-avatar">U</div>
-      <div class="prof-name" id="profFullName">Telegram Foydalanuvchi</div>
-      <div class="prof-id" id="profUserId">ID: —</div>
-      <span class="badge badge-green" id="profRoleBadge">✓ Telegram WebApp Auth</span>
-      <div class="prof-stats">
-        <div class="stat-box">
-          <div class="stat-val" id="statTotalMovies">0</div>
-          <div class="stat-lbl">Kinolar</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-val" id="statFavCount">0</div>
-          <div class="stat-lbl">Sevimlilar</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-val" id="statSerialsCount">0</div>
-          <div class="stat-lbl">Seriallar</div>
-        </div>
-      </div>
+  <!-- Floating Desktop Bot CTA (visible on Genres view) -->
+  <button id="floatingBotPill" class="floating-bot-pill" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername)">
+    <span style="font-size:18px;">✈️</span>
+    <div style="text-align:left;">
+      <div class="fbp-t">Telegram botda bepul ko'rish →</div>
+      <div class="fbp-s" id="floatingBotSub">O'zbek tilida • 24/7</div>
     </div>
+  </button>
 
-    <div class="action-list">
-      <button class="act-btn" onclick="openBotLink('https://t.me/movieee_land')">
-        <span>📢 Rasmiy Kanal (@movieee_land)</span>
-        <span>↗️</span>
-      </button>
-      <button class="act-btn" onclick="openBotLink('https://t.me/movieeland_group')">
-        <span>🌐 Mavzuli Guruh (@movieeland_group)</span>
-        <span>↗️</span>
-      </button>
-      <button class="act-btn" onclick="openBotLink('https://t.me/movieeland_bot')">
-        <span>🤖 Botga qaytish (@movieeland_bot)</span>
-        <span>▶️</span>
-      </button>
-    </div>
-  </section>
+  <!-- Floating Support Chat FAB -->
+  <button class="fab-chat" title="Movie Land Guruh" onclick="openTelegramUrl(STATE.groupUrl)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+  </button>
 
-  <!-- MOVIE DETAIL BOTTOM SHEET -->
-  <div class="modal-backdrop" id="movieModal" onclick="if(event.target===this)closeModal()">
+  <!-- Floating Mobile Bottom Dock -->
+  <nav class="bottom-dock" aria-label="Mobil navigatsiya">
+    <button class="dock-btn active" data-dock="home" onclick="switchView('home')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z" stroke-linejoin="round"/></svg>
+      <span>Asosiy</span>
+    </button>
+    <button class="dock-btn" data-dock="search" onclick="switchView('search')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5" stroke-linecap="round"/></svg>
+      <span>Qidiruv</span>
+    </button>
+    <button class="dock-btn" data-dock="genres" onclick="switchView('genres')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 12l10 5 10-5M2 17l10 5 10-5" stroke-linejoin="round"/></svg>
+      <span>Janrlar</span>
+    </button>
+    <button class="dock-btn" data-dock="favorites" onclick="switchView('favorites')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z" stroke-linejoin="round"/></svg>
+      <span>Sevimli</span>
+    </button>
+    <button class="dock-btn" data-dock="profile" onclick="switchView('profile')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.8 3.6-6 8-6s8 2.2 8 6" stroke-linecap="round"/></svg>
+      <span>Profil</span>
+    </button>
+  </nav>
+
+  <!-- Movie Detail Modal -->
+  <div id="movieModal" class="modal-backdrop" onclick="if(event.target===this) closeMovieModal()">
     <div class="modal-sheet">
-      <div class="sheet-handle"></div>
-      <div class="sheet-top">
-        <img id="modalPoster" class="sheet-poster" src="" alt="" />
-        <div class="sheet-info">
-          <div id="modalBadges" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-          <div class="sheet-title" id="modalTitle"></div>
-          <div class="sheet-meta" id="modalMeta"></div>
+      <button class="modal-close" onclick="closeMovieModal()">×</button>
+      <div class="md-hero">
+        <img id="mdPoster" class="md-poster" src="" alt="" />
+        <div class="md-info">
+          <div class="md-code" id="mdCode">#1</div>
+          <h3 class="md-title" id="mdTitle">Kino nomi</h3>
+          <div class="md-badges" id="mdBadges"></div>
         </div>
       </div>
-      <div class="sheet-desc" id="modalDesc"></div>
-      <div id="modalEpisodesBox" style="display:none">
-        <div class="ep-section-title" id="modalEpTitle">🎞 Qismni tanlang:</div>
-        <div class="ep-grid" id="modalEpGrid"></div>
-      </div>
-      <div class="sheet-actions">
-        <button class="btn-watch-main" id="modalWatchBtn">▶️ Botda Tomosha Qilish</button>
-        <button class="btn-close-sheet" onclick="closeModal()">✕</button>
+      <div class="md-body">
+        <p class="md-desc" id="mdDesc"></p>
+        <div id="mdEpisodesWrap" style="display:none;">
+          <div class="ep-section-title" id="mdEpTitle">Qismni tanlang:</div>
+          <div class="ep-grid" id="mdEpGrid"></div>
+        </div>
+        <div class="md-actions">
+          <button id="mdFavBtn" class="md-fav-btn" onclick="toggleCurrentFavorite()" title="Sevimlilarga qo'shish">🤍</button>
+          <button id="mdWatchBtn" class="btn-primary-full" onclick="watchCurrentMovie()">✈️ Botda tomosha qilish</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- BOTTOM NAVIGATION -->
-  <nav class="bottom-nav">
-    <div class="nav-item active" id="navHome" onclick="switchTab('home')">
-      <span class="nav-icon">🏠</span>
-      <span id="lblNavHome">Katalog</span>
+  <!-- Trailer Modal -->
+  <div id="trailerModal" class="modal-backdrop" onclick="if(event.target===this) closeTrailerModal()">
+    <div class="modal-sheet" style="padding:20px;">
+      <button class="modal-close" onclick="closeTrailerModal()">×</button>
+      <h3 id="trModalTitle" style="font-size:18px;font-weight:800;margin-bottom:6px;padding-right:34px;"></h3>
+      <p id="trModalNote" style="font-size:12.5px;color:var(--muted);margin-bottom:14px;"></p>
+      <div id="trModalBody" style="border-radius:14px;overflow:hidden;margin-bottom:16px;background:#000;"></div>
+      <button class="btn-primary-full" onclick="openTelegramUrl(STATE.channelUrl)">📢 Kanalda premyerani kuzatish</button>
     </div>
-    <div class="nav-item" id="navSerials" onclick="switchTab('serial')">
-      <span class="nav-icon">📺</span>
-      <span id="lblNavSerials">Seriallar</span>
-    </div>
-    <div class="nav-item" id="navFavs" onclick="switchTab('fav')">
-      <span class="nav-icon">⭐</span>
-      <span id="lblNavFavs">Saqlangan</span>
-    </div>
-    <div class="nav-item" id="navProfile" onclick="switchTab('profile')">
-      <span class="nav-icon">👤</span>
-      <span id="lblNavProfile">Profil</span>
-    </div>
-  </nav>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
 
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-    const BOT_USERNAME = "movieeland_bot";
-    const FALLBACK_POSTER = "https://img.icons8.com/fluency/240/cinema---v1.png";
-    const GITHUB_CATALOG_URL = "https://raw.githubusercontent.com/Asliddin55/movie_laand-v2/main/webapp/catalog.json";
+    if (tg) {
+      try {
+        tg.ready();
+        tg.expand();
+      } catch (e) {}
+    }
 
-    let ALL_MOVIES = [];
-    let CURRENT_CAT = "all";
-    let CURRENT_LANG = localStorage.getItem("ml_lang") || "uz";
-    let FAVORITES = JSON.parse(localStorage.getItem("ml_favs") || "[]");
-    let SELECTED_MOVIE = null;
-    let SELECTED_EP = 1;
-    let TG_USER = null;
+    const STATE = {
+      apiMode: 'php', // 'php' -> api.php, 'py' -> /api/...
+      botUsername: 'movieeland_bot',
+      channelUrl: 'https://t.me/movieee_land',
+      groupUrl: 'https://t.me/movieeland_group',
+      config: {
+        webapp_enabled: '1',
+        webapp_title: 'Movie Land',
+        webapp_subtitle: "O'zbek tilidagi kinolar • 24/7",
+        webapp_banner: '',
+        vip_7_price: 7000,
+        vip_30_price: 20000,
+        vip_90_price: 30000,
+        ref_reward_amount: 1000,
+      },
+      movies: [],
+      genres: [],
+      trailers: [],
+      favorites: new Set(JSON.parse(localStorage.getItem('ml_favs') || '[]')),
+      user: null,
+      activeView: 'home',
+      activeGenreKey: '',
+      searchFilter: 'all',
+      modalMovie: null,
+      modalEp: null,
+    };
 
-    function initTelegramAuth() {
+    const GENRE_THEMES = [
+      { bg: 'linear-gradient(125deg, #432311 0%, #241612 52%, #131318 100%)', color: '#f59e0b' },
+      { bg: 'linear-gradient(125deg, #103b2e 0%, #112622 52%, #11151b 100%)', color: '#34d399' },
+      { bg: 'linear-gradient(135deg, #271b48 0%, #191529 65%, #13141d 100%)', color: '#a78bfa' },
+      { bg: 'linear-gradient(135deg, #152b4f 0%, #131d33 65%, #12151f 100%)', color: '#60a5fa' },
+      { bg: 'linear-gradient(135deg, #35194a 0%, #20142c 65%, #14141d 100%)', color: '#c084fc' },
+      { bg: 'linear-gradient(135deg, #471923 0%, #28141a 65%, #15141a 100%)', color: '#fb7185' },
+      { bg: 'linear-gradient(135deg, #1b2847 0%, #161d30 65%, #13151e 100%)', color: '#93c5fd' },
+      { bg: 'linear-gradient(135deg, #3f3213 0%, #251f13 65%, #15151a 100%)', color: '#fcd34d' },
+      { bg: 'linear-gradient(135deg, #113640 0%, #122229 65%, #12151c 100%)', color: '#38bdf8' },
+      { bg: 'linear-gradient(135deg, #451833 0%, #261421 65%, #15141b 100%)', color: '#f472b6' },
+      { bg: 'linear-gradient(135deg, #3c2614 0%, #221913 65%, #15151a 100%)', color: '#fb923c' },
+    ];
+
+    const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function handlePosterError(img) {
+      const wrap = img && img.parentElement;
+      if (!wrap) return;
+      const div = document.createElement('div');
+      div.className = 'poster-fallback';
+      const ic = document.createElement('div');
+      ic.className = 'pf-ic';
+      ic.textContent = img.dataset.serial === '1' ? '📺' : '🎬';
+      const tx = document.createElement('div');
+      tx.className = 'pf-tx';
+      tx.textContent = img.dataset.title || 'Movie Land';
+      div.appendChild(ic);
+      div.appendChild(tx);
+      img.replaceWith(div);
+    }
+
+    function fmtNum(n) {
+      return Number(n || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    }
+
+    function fmtUzDate(raw) {
+      if (!raw) return '—';
+      const d = new Date(String(raw).replace(' ', 'T'));
+      if (isNaN(d.getTime())) return String(raw).slice(0, 10);
+      return `${d.getDate()}-${UZ_MONTHS[d.getMonth()]}, ${d.getFullYear()}`;
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2300);
+    }
+
+    // ==================== THEME ====================
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('ml_theme', theme);
+      const sw = document.getElementById('darkModeSwitch');
+      if (sw) sw.classList.toggle('on', theme === 'dark');
       if (tg) {
         try {
-          tg.ready();
-          tg.expand();
-          if (tg.setHeaderColor) tg.setHeaderColor("#06080f");
-          if (tg.setBackgroundColor) tg.setBackgroundColor("#06080f");
+          const c = theme === 'dark' ? '#0b0c10' : '#f5f6fa';
+          tg.setHeaderColor && tg.setHeaderColor(c);
+          tg.setBackgroundColor && tg.setBackgroundColor(c);
         } catch (e) {}
       }
-      const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : null;
-      if (u) {
-        TG_USER = u;
-        const fullName = [u.first_name, u.last_name].filter(Boolean).join(" ") || "User";
-        document.getElementById("userNameTop").textContent = fullName;
-        document.getElementById("profFullName").textContent = fullName;
-        document.getElementById("profUserId").textContent = `ID: ${u.id}` + (u.username ? ` • @${u.username}` : "");
-        const isSuper = String(u.id) === "6188085308";
-        const badgeTxt = isSuper ? "👑 SUPER ADMIN" : (u.is_premium ? "💎 TG PREMIUM" : "✓ Telegram Auth");
-        document.getElementById("authBadge").textContent = badgeTxt;
-        document.getElementById("profRoleBadge").textContent = badgeTxt;
-
-        if (u.photo_url) {
-          const topImg = document.getElementById("userAvatarImg");
-          const profImg = document.getElementById("profAvatarImg");
-          topImg.src = u.photo_url;
-          profImg.src = u.photo_url;
-          topImg.style.display = "block";
-          profImg.style.display = "block";
-          document.getElementById("userAvatarTxt").style.display = "none";
-          document.getElementById("profAvatarTxt").style.display = "none";
-        } else {
-          const initL = fullName.charAt(0).toUpperCase();
-          document.getElementById("userAvatarTxt").textContent = initL;
-          document.getElementById("profAvatarTxt").textContent = initL;
-        }
-
-        // Agar lokal yoki cloud API mavjud bo'lsa, kriptografik auth ham tekshiriladi
-        if (tg.initData) {
-          fetch("/api/auth", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({initData: tg.initData})
-          }).then(r => r.ok ? r.json() : null).then(data => {
-            if (data && data.ok && data.user) {
-              if (data.user.is_premium) {
-                document.getElementById("authBadge").textContent = `💎 VIP [${data.user.vip_tag || 'PREMIUM'}]`;
-                document.getElementById("profRoleBadge").textContent = `💎 VIP [${data.user.vip_tag || 'PREMIUM'}]`;
-              }
-            }
-          }).catch(() => {});
-        }
-      }
     }
 
-    async function loadCatalog() {
-      const urls = ["/api/movies", GITHUB_CATALOG_URL, "./catalog.json"];
-      for (const u of urls) {
-        try {
-          const r = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" });
-          if (r.ok) {
-            const data = await r.json();
-            if (Array.isArray(data)) {
-              ALL_MOVIES = data;
-              break;
-            } else if (data && Array.isArray(data.movies)) {
-              ALL_MOVIES = data.movies;
-              break;
-            }
-          }
-        } catch (e) {}
-      }
-      updateStats();
-      renderHero();
-      renderGrid();
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+      applyTheme(cur === 'dark' ? 'light' : 'dark');
     }
 
-    function updateStats() {
-      document.getElementById("statTotalMovies").textContent = ALL_MOVIES.length;
-      document.getElementById("statFavCount").textContent = FAVORITES.length;
-      document.getElementById("statSerialsCount").textContent = ALL_MOVIES.filter(m => m.is_serial || (m.episodes_count || 1) > 1).length;
-    }
+    applyTheme(localStorage.getItem('ml_theme') || 'dark');
 
-    function renderHero() {
-      const hc = document.getElementById("heroCard");
-      if (!ALL_MOVIES.length) {
-        if (hc) hc.style.display = "none";
+    // ==================== NAVIGATION ====================
+    function switchView(name, anchor) {
+      if (STATE.config.webapp_enabled === '0') {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-maintenance').classList.add('active');
         return;
       }
-      if (hc) hc.style.display = "block";
-      const feat = ALL_MOVIES.find(m => m.photo_id && m.photo_id.startsWith("http")) || ALL_MOVIES[0];
-      const bg = (feat.photo_id && feat.photo_id.startsWith("http")) ? feat.photo_id : FALLBACK_POSTER;
-      document.getElementById("heroBg").style.backgroundImage = `url('${bg}')`;
-      document.getElementById("heroTitle").textContent = feat.name;
-      const epCnt = feat.episodes_count || 1;
-      document.getElementById("heroBadges").innerHTML = `
-        <span class="badge badge-green">#${feat.code}</span>
-        <span class="badge badge-gold">⭐ ${feat.imdb || '8.5'}</span>
-        <span class="badge badge-blue">${feat.quality || '1080p HD'}</span>
-        ${(feat.is_serial || epCnt > 1) ? `<span class="badge badge-red">📺 ${epCnt} qism</span>` : ''}
+      STATE.activeView = name;
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const target = document.getElementById('view-' + name);
+      if (target) target.classList.add('active');
+
+      document.querySelectorAll('[data-nav]').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
+      document.querySelectorAll('[data-dock]').forEach(b => b.classList.toggle('active', b.dataset.dock === name));
+
+      const fbp = document.getElementById('floatingBotPill');
+      if (fbp) fbp.classList.toggle('visible', name === 'genres');
+
+      if (name === 'search') renderSearchResults();
+      if (name === 'favorites') renderFavorites();
+      if (name === 'genres') renderGenresPage();
+      if (name === 'profile') renderProfile();
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (anchor === 'referral') {
+        setTimeout(() => {
+          const rc = document.getElementById('referralCard');
+          if (rc) rc.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 120);
+      }
+    }
+
+    function focusSearch() {
+      switchView('search');
+      setTimeout(() => {
+        const inp = document.getElementById('searchInput');
+        if (inp) inp.focus();
+      }, 100);
+    }
+
+    function handleHeroSearch(e) {
+      e.preventDefault();
+      const q = (document.getElementById('heroSearchInput').value || '').trim();
+      document.getElementById('searchInput').value = q;
+      switchView('search');
+      renderSearchResults();
+    }
+
+    function openSearchPreset(preset) {
+      switchView('search');
+      const btn = document.querySelector(`[data-sf="${preset}"]`);
+      if (btn) setSearchFilter(preset, btn);
+    }
+
+    function scrollGenrePills() {
+      const el = document.getElementById('homeGenrePills');
+      if (el) el.scrollBy({ left: 220, behavior: 'smooth' });
+    }
+
+    // ==================== API LOADER ====================
+    async function fetchBootstrap() {
+      // 1. Try native MyXvest PHP API first
+      try {
+        const r = await fetch('api.php?action=bootstrap', { cache: 'no-store' });
+        if (r.ok && (r.headers.get('content-type') || '').includes('application/json')) {
+          const j = await r.json();
+          if (j && j.ok) {
+            STATE.apiMode = 'php';
+            return j;
+          }
+        }
+      } catch (e) {}
+
+      // 2. Fallback to Python aiohttp API
+      try {
+        const r = await fetch('/api/bootstrap', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (j && j.ok) {
+            STATE.apiMode = 'py';
+            return j;
+          }
+        }
+      } catch (e) {}
+
+      // 3. Static fallback catalog.json
+      try {
+        const r = await fetch('webapp/catalog.json', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          return { ok: true, config: STATE.config, movies: j.movies || [], genres: [], trailers: [] };
+        }
+      } catch (e) {}
+
+      return { ok: true, config: STATE.config, movies: [], genres: [], trailers: [] };
+    }
+
+    async function authenticateTelegramUser() {
+      // Pre-populate immediately from initDataUnsafe so UI feels instant
+      if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        const u = tg.initDataUnsafe.user;
+        STATE.user = {
+          id: u.id,
+          full_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Foydalanuvchi',
+          username: u.username || '',
+          photo_url: u.photo_url || '',
+          joined_at: new Date().toISOString().slice(0, 10),
+          balance: 0,
+          ref_count: 0,
+          is_premium: false,
+          vip_tag: 'PREMIUM',
+        };
+        renderProfile();
+      }
+
+      if (!tg || !tg.initData) return;
+      const endpoint = STATE.apiMode === 'php' ? 'api.php?action=auth' : '/api/auth';
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: tg.initData }),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          if (j && j.ok && j.user) {
+            STATE.user = Object.assign({}, STATE.user || {}, j.user);
+            if (Array.isArray(j.user.favorites)) {
+              STATE.favorites = new Set(j.user.favorites.map(String));
+              localStorage.setItem('ml_favs', JSON.stringify([...STATE.favorites]));
+            }
+            renderProfile();
+          }
+        }
+      } catch (e) {}
+    }
+
+    // ==================== BUILD LOCAL GENRES IF PYTHON FALLBACK ====================
+    function deriveGenresFromMovies(movies) {
+      const map = new Map();
+      const iconMap = {
+        jangari: '🔥', sarguzasht: '🧭', drama: '🎭', fantastika: '🚀',
+        fantaziya: '🐉', triller: '🔪', kriminal: '🕵️', komediya: '😂',
+        oilaviy: '👨‍👩‍👧', melodrama: '💕', multfilm: '🧸', dahshat: '👻',
+      };
+      for (const m of movies) {
+        const parts = String(m.genre || 'Jangari').split(/[,•|/]+/);
+        const seen = new Set();
+        for (const raw of parts) {
+          const clean = raw.replace(/^[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\u200D\s]+/gu, '').trim();
+          if (!clean) continue;
+          const key = clean.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (!map.has(key)) {
+            let ic = '🎬';
+            for (const [k, v] of Object.entries(iconMap)) {
+              if (key.includes(k)) { ic = v; break; }
+            }
+            map.set(key, { key, name: clean, icon: ic, count: 0, posters: [] });
+          }
+          const g = map.get(key);
+          g.count++;
+          if (m.photo_id && g.posters.length < 4 && !g.posters.includes(m.photo_id)) {
+            g.posters.push(m.photo_id);
+          }
+        }
+      }
+      return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }
+
+    // ==================== CARD RENDERER ====================
+    function movieCardHtml(m) {
+      const code = esc(m.code);
+      const name = esc(m.name);
+      const rating = esc(m.imdb || '8.4');
+      const views = fmtNum(m.views || 0);
+      const year = esc(m.year || '');
+      const epBadge = (m.is_serial || Number(m.episodes_count) > 1)
+        ? `<span class="serial-pill">${m.is_serial ? '📺' : '🎞'} ${Number(m.episodes_count)} qism</span>`
+        : '';
+
+      const posterInner = m.photo_id
+        ? `<img class="poster-img" src="${esc(m.photo_id)}" alt="${name}" data-title="${name}" data-serial="${m.is_serial ? '1' : '0'}" loading="lazy" onerror="handlePosterError(this)" />`
+        : `<div class="poster-fallback"><div class="pf-ic">${m.is_serial ? '📺' : '🎬'}</div><div class="pf-tx">${name}</div></div>`;
+
+      return `
+        <article class="movie-card" data-code="${code}" onclick="openMovieModal(this.dataset.code)">
+          <div class="poster-wrap">
+            ${posterInner}
+            <div class="poster-grad"></div>
+            <div class="badge-tl"><span class="star">★</span> ${rating}</div>
+            <div class="badge-tr">👁 ${views}</div>
+            ${epBadge}
+            <div class="poster-foot">
+              <span class="bot-watermark"><span class="wm-dot"></span>@${esc(STATE.botUsername)}</span>
+              <span class="code-tag">#${code}</span>
+            </div>
+          </div>
+          <div class="movie-meta-below">
+            <div class="movie-name">${name}</div>
+            <div class="movie-sub">
+              <span>${year}</span>
+              <span>${esc(String(m.quality || 'HD').split(' ')[0])}</span>
+            </div>
+          </div>
+        </article>
       `;
-      document.getElementById("heroMetaText").textContent = `${feat.year || '2024'} • ${feat.country || 'AQSH'} • ${feat.genre || 'Kino'}`;
-      hc.onclick = () => openMovieModal(feat);
     }
 
-    function toggleFav(code, ev) {
-      if (ev) ev.stopPropagation();
-      const sCode = String(code);
-      if (FAVORITES.includes(sCode)) {
-        FAVORITES = FAVORITES.filter(x => x !== sCode);
+    function renderHome() {
+      const cfg = STATE.config;
+      document.title = `${cfg.webapp_title || 'Movie Land'} — O'zbek tilidagi kinolar`;
+      document.getElementById('brandTitle').textContent = cfg.webapp_title || 'Movie Land';
+      document.getElementById('brandSub').textContent = `${cfg.webapp_subtitle || "O'zbek tilidagi kinolar"} · ${STATE.movies.length} ta`;
+      document.getElementById('footerTag').textContent = '@' + STATE.botUsername;
+      document.getElementById('floatingBotSub').textContent = `${STATE.movies.length} ta kino · o'zbek tilida`;
+
+      const bannerEl = document.getElementById('promoBanner');
+      if (cfg.webapp_banner && cfg.webapp_banner.trim()) {
+        bannerEl.textContent = '📣 ' + cfg.webapp_banner.trim();
+        bannerEl.classList.add('show');
       } else {
-        FAVORITES.push(sCode);
+        bannerEl.classList.remove('show');
       }
-      localStorage.setItem("ml_favs", JSON.stringify(FAVORITES));
-      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
-      updateStats();
-      renderGrid();
+
+      if (cfg.webapp_enabled === '0') {
+        switchView('maintenance');
+        return;
+      }
+
+      // 1. Genre Pills
+      const pillsEl = document.getElementById('homeGenrePills');
+      const pillItems = [
+        `<button class="pill-chip ${!STATE.activeGenreKey ? 'active' : ''}" onclick="selectHomeGenre('')">Barchasi</button>`,
+        ...STATE.genres.map(g =>
+          `<button class="pill-chip ${STATE.activeGenreKey === g.key ? 'active' : ''}" data-genre="${esc(g.key)}" onclick="selectHomeGenre(this.dataset.genre)">${esc(g.name)}</button>`
+        )
+      ];
+      pillsEl.innerHTML = pillItems.join('');
+
+      // 2. Trailers Row (from /web_admin or latest poster highlights)
+      const trSec = document.getElementById('trailersSection');
+      const trRow = document.getElementById('trailersRow');
+      let trList = STATE.trailers.slice();
+      if (!trList.length && STATE.movies.length) {
+        trList = STATE.movies.filter(m => m.photo_id).slice(0, 10).map(m => ({
+          id: m.code,
+          title: m.name,
+          poster_url: m.photo_id,
+          video_url: '',
+          release_note: `${m.year} • #${m.code} • ${m.genre}`,
+          movieCode: m.code,
+        }));
+      }
+      if (trList.length) {
+        trSec.style.display = 'block';
+        trRow.innerHTML = trList.map((tr, idx) => `
+          <div class="trailer-item" onclick="openTrailerItem(${idx})">
+            <div class="trailer-ring">
+              <img class="trailer-thumb" src="${esc(tr.poster_url)}" alt="${esc(tr.title)}" loading="lazy" />
+              <span class="trailer-play-mini">▶</span>
+            </div>
+            <div class="trailer-name">${esc(tr.title)}</div>
+          </div>
+        `).join('');
+        STATE._renderedTrailers = trList;
+      } else {
+        trSec.style.display = 'none';
+      }
+
+      // 3. Filter movies if genre selected
+      let filtered = STATE.movies;
+      const fb = document.getElementById('homeFilterBanner');
+      if (STATE.activeGenreKey) {
+        const gObj = STATE.genres.find(g => g.key === STATE.activeGenreKey);
+        filtered = STATE.movies.filter(m => String(m.genre || '').toLowerCase().includes(STATE.activeGenreKey));
+        document.getElementById('homeFilterTitle').textContent = gObj ? `${gObj.icon} ${gObj.name}` : STATE.activeGenreKey;
+        document.getElementById('homeFilterCount').textContent = `${filtered.length} ta kino`;
+        document.getElementById('latestSectionTitle').textContent = gObj ? `${gObj.name} kinolari` : 'Saralangan kinolar';
+        fb.classList.add('show');
+      } else {
+        document.getElementById('latestSectionTitle').textContent = "Yangi qo'shilganlar";
+        fb.classList.remove('show');
+      }
+
+      const latestGrid = document.getElementById('latestMoviesGrid');
+      if (!filtered.length) {
+        latestGrid.style.display = 'block';
+        latestGrid.innerHTML = `
+          <div class="empty-state">
+            <div class="es-ic">🎬</div>
+            <h3>Katalogga yangi kinolar yuklanmoqda</h3>
+            <p>Tez orada bu yerda eng sara o'zbek tilidagi kinolar va seriallar paydo bo'ladi!</p>
+            <button class="btn-primary-full" style="max-width:260px;margin:0 auto;" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername)">
+              ✈️ Telegram botga o'tish
+            </button>
+          </div>
+        `;
+      } else {
+        latestGrid.style.display = 'grid';
+        latestGrid.innerHTML = filtered.slice(0, 18).map(movieCardHtml).join('');
+      }
+
+      // 4. Top Viewed & Serials (only when no genre filter is active)
+      const topSec = document.getElementById('topMoviesSection');
+      const serSec = document.getElementById('serialsSection');
+      if (!STATE.activeGenreKey && STATE.movies.length > 6) {
+        const topList = [...STATE.movies].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 6);
+        topSec.style.display = 'block';
+        document.getElementById('topMoviesGrid').innerHTML = topList.map(movieCardHtml).join('');
+      } else {
+        topSec.style.display = 'none';
+      }
+
+      const serials = STATE.movies.filter(m => Number(m.is_serial) === 1 || Number(m.episodes_count) > 1);
+      if (!STATE.activeGenreKey && serials.length > 0) {
+        serSec.style.display = 'block';
+        document.getElementById('serialsGrid').innerHTML = serials.slice(0, 6).map(movieCardHtml).join('');
+      } else {
+        serSec.style.display = 'none';
+      }
     }
 
-    function renderGrid() {
-      const q = (document.getElementById("searchInput").value || "").trim().toLowerCase();
-      let list = [...ALL_MOVIES];
+    function selectHomeGenre(key) {
+      STATE.activeGenreKey = key;
+      if (STATE.activeView !== 'home') switchView('home');
+      else renderHome();
+    }
 
-      if (CURRENT_CAT === "top") {
-        list.sort((a, b) => (b.views || 0) - (a.views || 0));
-      } else if (CURRENT_CAT === "new") {
-        list.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-      } else if (CURRENT_CAT === "serial") {
-        list = list.filter(m => m.is_serial || (m.episodes_count || 1) > 1);
-      } else if (CURRENT_CAT === "fav") {
-        list = list.filter(m => FAVORITES.includes(String(m.code)));
-      } else if (CURRENT_CAT !== "all") {
-        list = list.filter(m => (m.genre || "").toLowerCase().includes(CURRENT_CAT.toLowerCase()));
-      }
+    function clearGenreFilter() {
+      STATE.activeGenreKey = '';
+      renderHome();
+    }
+
+    // ==================== SEARCH VIEW ====================
+    function setSearchFilter(f, btn) {
+      STATE.searchFilter = f;
+      document.querySelectorAll('[data-sf]').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderSearchResults();
+    }
+
+    function renderSearchResults() {
+      const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      const qNum = q.replace(/^#/, '');
+      let list = STATE.movies.slice();
+
+      if (STATE.searchFilter === 'movies') list = list.filter(m => Number(m.is_serial) !== 1);
+      else if (STATE.searchFilter === 'serial') list = list.filter(m => Number(m.is_serial) === 1 || Number(m.episodes_count) > 1);
+      else if (STATE.searchFilter === 'top') list.sort((a, b) => (b.views || 0) - (a.views || 0));
+      else if (STATE.searchFilter === 'rating') list.sort((a, b) => parseFloat(b.imdb || 0) - parseFloat(a.imdb || 0));
 
       if (q) {
-        const cleanQ = q.replace(/^#/, "");
         list = list.filter(m =>
-          String(m.code).toLowerCase() === cleanQ ||
-          (m.name || "").toLowerCase().includes(q) ||
-          (m.genre || "").toLowerCase().includes(q) ||
-          String(m.year || "").includes(q)
+          String(m.code).toLowerCase() === qNum ||
+          String(m.code).toLowerCase().includes(qNum) ||
+          String(m.name || '').toLowerCase().includes(q) ||
+          String(m.genre || '').toLowerCase().includes(q) ||
+          String(m.year || '').includes(q) ||
+          String(m.country || '').toLowerCase().includes(q)
         );
       }
 
-      document.getElementById("gridCount").textContent = `${list.length} ta`;
-      const grid = document.getElementById("moviesGrid");
-      if (!list.length) {
-        grid.innerHTML = `<div class="empty-state">📭 Hech narsa topilmadi</div>`;
-        return;
-      }
+      document.getElementById('searchSummary').textContent = q
+        ? `«${q}» bo'yicha ${list.length} ta natija topildi`
+        : `Jami katalog: ${list.length} ta kino va serial`;
 
-      grid.innerHTML = list.slice(0, 80).map(m => {
-        const poster = (m.photo_id && m.photo_id.startsWith("http")) ? m.photo_id : FALLBACK_POSTER;
-        const isFav = FAVORITES.includes(String(m.code));
-        const epCnt = m.episodes_count || 1;
-        return `
-          <div class="m-card" onclick='openMovieModalByCode("${String(m.code).replace(/"/g, "")}")'>
-            <div class="m-poster-wrap">
-              <img class="m-poster" src="${poster}" loading="lazy" onerror="this.src='${FALLBACK_POSTER}'" alt="" />
-              <span class="m-code-pill">#${m.code}</span>
-              <button class="m-fav-btn ${isFav ? 'saved' : ''}" onclick="toggleFav('${m.code}', event)">${isFav ? '★' : '☆'}</button>
-              ${(m.is_serial || epCnt > 1) ? `<span class="m-ep-pill">📺 ${epCnt} qism</span>` : ''}
-              <span class="m-rate-pill">⭐ ${m.imdb || '8.4'}</span>
-            </div>
-            <div class="m-body">
-              <div class="m-title">${m.name}</div>
-              <div class="m-sub">
-                <span>${m.year || '2024'} • ${m.country || 'AQSH'}</span>
-                <span>👁 ${m.views || 0}</span>
-              </div>
-            </div>
+      const grid = document.getElementById('searchResultsGrid');
+      if (!list.length) {
+        grid.style.display = 'block';
+        grid.innerHTML = `
+          <div class="empty-state">
+            <div class="es-ic">🔍</div>
+            <h3>Hech narsa topilmadi</h3>
+            <p>Boshqa nom yoki kino kodini kiritib ko'ring, yoki botda buyurtma qoldiring.</p>
           </div>
         `;
-      }).join("");
-    }
-
-    function openMovieModalByCode(code) {
-      const m = ALL_MOVIES.find(x => String(x.code) === String(code));
-      if (m) openMovieModal(m);
-    }
-
-    function openMovieModal(m) {
-      SELECTED_MOVIE = m;
-      SELECTED_EP = 1;
-      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
-      const poster = (m.photo_id && m.photo_id.startsWith("http")) ? m.photo_id : FALLBACK_POSTER;
-      document.getElementById("modalPoster").src = poster;
-      document.getElementById("modalTitle").textContent = m.name;
-      const epCnt = m.episodes_count || 1;
-      document.getElementById("modalBadges").innerHTML = `
-        <span class="badge badge-green">KOD: #${m.code}</span>
-        <span class="badge badge-gold">⭐ ${m.imdb || '8.4'}</span>
-        <span class="badge badge-blue">${m.quality || '1080p HD'}</span>
-      `;
-      document.getElementById("modalMeta").innerHTML = `
-        📅 <b>Yili:</b> ${m.year || '2024'} • 🌏 <b>Davlat:</b> ${m.country || 'AQSH'}<br/>
-        🎭 <b>Janr:</b> ${m.genre || 'Kino'}<br/>
-        👁 <b>Ko'rishlar:</b> ${m.views || 0} ta
-      `;
-      document.getElementById("modalDesc").textContent = m.caption || `${m.name} (${m.year || '2024'}) — Yuqori sifatda o'zbek tilida tomosha qiling!`;
-
-      const epBox = document.getElementById("modalEpisodesBox");
-      const epGrid = document.getElementById("modalEpGrid");
-      if (m.is_serial || epCnt > 1) {
-        epBox.style.display = "block";
-        let btns = "";
-        for (let i = 1; i <= epCnt; i++) {
-          btns += `<button class="ep-btn ${i === 1 ? 'active' : ''}" onclick="selectModalEp(${i}, this)">${i}-qism</button>`;
-        }
-        epGrid.innerHTML = btns;
       } else {
-        epBox.style.display = "none";
+        grid.style.display = 'grid';
+        grid.innerHTML = list.slice(0, 60).map(movieCardHtml).join('');
+      }
+    }
+
+    // ==================== GENRES PAGE (SCREENSHOT 3) ====================
+    function genreFanHtml(posters) {
+      if (!posters || !posters.length) return '';
+      return `<div class="poster-fan">${posters.slice(0, 4).map(p => `<div class="fan-item"><img src="${esc(p)}" alt="" loading="lazy" /></div>`).join('')}</div>`;
+    }
+
+    function renderGenresPage() {
+      const genres = STATE.genres;
+      document.getElementById('genresSub').textContent = `${genres.length} ta janr · kayfiyatingizga mosini tanlang`;
+
+      const heroEl = document.getElementById('genresHeroStack');
+      const gridEl = document.getElementById('genresGrid');
+
+      const topTwo = genres.slice(0, 2);
+      const rest = genres.slice(2);
+
+      heroEl.innerHTML = topTwo.map((g, i) => {
+        const th = GENRE_THEMES[i % GENRE_THEMES.length];
+        return `
+          <div class="genre-card wide" style="background:${th.bg};" data-genre="${esc(g.key)}" onclick="selectHomeGenre(this.dataset.genre)">
+            <div class="genre-card-info">
+              <div class="genre-card-icon">${esc(g.icon)}</div>
+              <div class="genre-card-name">${esc(g.name)}</div>
+              <div class="genre-card-count" style="color:${th.color};">${g.count} ta kino ›</div>
+            </div>
+            ${genreFanHtml(g.posters)}
+          </div>
+        `;
+      }).join('');
+
+      gridEl.innerHTML = rest.map((g, i) => {
+        const th = GENRE_THEMES[(i + 2) % GENRE_THEMES.length];
+        return `
+          <div class="genre-card compact" style="background:${th.bg};" data-genre="${esc(g.key)}" onclick="selectHomeGenre(this.dataset.genre)">
+            <div class="genre-card-info">
+              <div class="genre-card-icon">${esc(g.icon)}</div>
+              <div class="genre-card-name">${esc(g.name)}</div>
+              <div class="genre-card-count" style="color:${th.color};">${g.count} ta kino ›</div>
+            </div>
+            ${genreFanHtml(g.posters)}
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ==================== FAVORITES VIEW ====================
+    function renderFavorites() {
+      const favMovies = STATE.movies.filter(m => STATE.favorites.has(String(m.code)));
+      document.getElementById('favSub').textContent = `${favMovies.length} ta sevimli kino saqlangan`;
+      const grid = document.getElementById('favoritesGrid');
+      if (!favMovies.length) {
+        grid.style.display = 'block';
+        grid.innerHTML = `
+          <div class="empty-state">
+            <div class="es-ic">❤️</div>
+            <h3>Sevimli kinolar hali yo'q</h3>
+            <p>Yoqtirgan kinolaringizni ochib ❤️ tugmasini bosing — ular shu yerda jamlanadi!</p>
+            <button class="btn-primary-full" style="max-width:240px;margin:0 auto;" onclick="switchView('home')">🎬 Kinolarni ko'rish</button>
+          </div>
+        `;
+      } else {
+        grid.style.display = 'grid';
+        grid.innerHTML = favMovies.map(movieCardHtml).join('');
+      }
+    }
+
+    // ==================== PROFILE VIEW ====================
+    function selectPlan(el) {
+      document.querySelectorAll('.plan-box').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    function renderProfile() {
+      const u = STATE.user;
+      const cfg = STATE.config;
+
+      const name = u ? u.full_name : 'Telegram foydalanuvchi';
+      const handle = u && u.username ? '@' + u.username : '@' + STATE.botUsername;
+      const joined = u && u.joined_at ? fmtUzDate(u.joined_at) : fmtUzDate(new Date().toISOString());
+      const balance = u ? Number(u.balance || 0) : 0;
+      const refs = u ? Number(u.ref_count || 0) : 0;
+      const uid = u && u.id ? u.id : '';
+
+      document.getElementById('profName').textContent = name;
+      document.getElementById('profHandle').textContent = handle;
+      document.getElementById('profJoined').textContent = `📅 A'zo: ${joined}`;
+      document.getElementById('profBalance').textContent = `${fmtNum(balance)} so'm`;
+      document.getElementById('profRefs').textContent = `${refs} ta do'st`;
+
+      const av = document.getElementById('profAvatar');
+      if (u && u.photo_url) {
+        av.innerHTML = `<img src="${esc(u.photo_url)}" alt="${esc(name)}" />`;
+      } else {
+        av.textContent = (name || 'M').trim().charAt(0).toUpperCase();
       }
 
-      updateWatchButtonLabel();
-      document.getElementById("movieModal").classList.add("open");
-    }
-
-    function selectModalEp(epNum, btnEl) {
-      SELECTED_EP = epNum;
-      document.querySelectorAll("#modalEpGrid .ep-btn").forEach(b => b.classList.remove("active"));
-      btnEl.classList.add("active");
-      updateWatchButtonLabel();
-    }
-
-    function updateWatchButtonLabel() {
-      if (!SELECTED_MOVIE) return;
-      const epCnt = SELECTED_MOVIE.episodes_count || 1;
-      const btn = document.getElementById("modalWatchBtn");
-      if (SELECTED_MOVIE.is_serial || epCnt > 1) {
-        btn.textContent = `▶️ ${SELECTED_EP}-qismni Botda Ko'rish`;
+      const vipBadge = document.getElementById('profVipTag');
+      if (u && u.is_premium) {
+        vipBadge.textContent = `💎 VIP [${u.vip_tag || 'PREMIUM'}]`;
+        vipBadge.style.display = 'inline-block';
       } else {
-        btn.textContent = `▶️ Kinoni Botda Ko'rish (#${SELECTED_MOVIE.code})`;
+        vipBadge.style.display = 'none';
       }
-      btn.onclick = () => triggerWatchInBot(SELECTED_MOVIE.code, SELECTED_EP);
+
+      const p7 = Number(cfg.vip_7_price || 7000);
+      const p30 = Number(cfg.vip_30_price || 20000);
+      const p90 = Number(cfg.vip_90_price || 30000);
+      const refBonus = Number(cfg.ref_reward_amount || 1000);
+
+      document.getElementById('premFromPrice').textContent = `${fmtNum(p7)} so'm dan boshlab`;
+      document.getElementById('price7').textContent = fmtNum(p7);
+      document.getElementById('price30').textContent = fmtNum(p30);
+      document.getElementById('price90').textContent = fmtNum(p90);
+      document.getElementById('refRewardText').textContent = `Har bir do'stingiz uchun ${fmtNum(refBonus)} so'm bonus balansingizga tushadi`;
+
+      const refLink = uid
+        ? `t.me/${STATE.botUsername}?start=ref_${uid}`
+        : `t.me/${STATE.botUsername}`;
+      document.getElementById('refLinkBox').textContent = refLink;
+
+      document.getElementById('profFavCount').textContent = STATE.favorites.size;
+      document.getElementById('profGenreCount').textContent = STATE.genres.length;
     }
 
-    function closeModal() {
-      document.getElementById("movieModal").classList.remove("open");
+    function copyRefLink() {
+      const txt = 'https://' + document.getElementById('refLinkBox').textContent.trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(() => showToast('✅ Referal havola nusxalandi!')).catch(() => showToast('📋 Havola: ' + txt));
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('✅ Referal havola nusxalandi!');
+      }
     }
 
-    function triggerWatchInBot(code, epNum) {
-      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
-      const startParam = (epNum && epNum > 1) ? `${code}_${epNum}` : `${code}`;
-      const deepUrl = `https://t.me/${BOT_USERNAME}?start=${startParam}`;
+    function shareRefLink() {
+      const link = 'https://' + document.getElementById('refLinkBox').textContent.trim();
+      const text = `🎬 Movie Land — eng sara o'zbek tilidagi HD kinolar va seriallar boti!`;
+      openTelegramUrl(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+    }
 
-      if (TG_USER && TG_USER.id) {
-        fetch("/api/watch", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            user_id: TG_USER.id,
-            code: String(code),
-            ep_num: Number(epNum || 1),
-            initData: (tg && tg.initData) ? tg.initData : ""
-          })
-        }).then(r => r.ok ? r.json() : null).then(res => {
-          if (res && res.ok && tg) {
-            tg.close();
+    function returnToBot() {
+      if (tg && tg.close) {
+        try { tg.close(); return; } catch (e) {}
+      }
+      openTelegramUrl('https://t.me/' + STATE.botUsername);
+    }
+
+    // ==================== MOVIE DETAIL MODAL ====================
+    async function openMovieModal(code) {
+      const m = STATE.movies.find(x => String(x.code) === String(code));
+      if (!m) return;
+      STATE.modalMovie = m;
+      STATE.modalEp = null;
+
+      document.getElementById('mdPoster').src = m.photo_id || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="100%25" height="100%25" fill="%23161822"/></svg>';
+      document.getElementById('mdCode').textContent = '#' + m.code;
+      document.getElementById('mdTitle').textContent = m.name;
+      document.getElementById('mdBadges').innerHTML = [
+        `<span class="md-badge">⭐ ${esc(m.imdb || '8.4')}</span>`,
+        `<span class="md-badge">👁 ${fmtNum(m.views || 0)}</span>`,
+        `<span class="md-badge">📅 ${esc(m.year || '2024')}</span>`,
+        `<span class="md-badge">🌏 ${esc(m.country || 'AQSH')}</span>`,
+        `<span class="md-badge">📀 ${esc(m.quality || 'HD')}</span>`,
+        `<span class="md-badge">${esc(m.genre || '')}</span>`,
+      ].join('');
+      document.getElementById('mdDesc').textContent = m.caption || `${m.name} (${m.year}) — O'zbek tilida yuqori sifatda tomosha qiling.`;
+
+      updateModalFavUI();
+      updateModalWatchBtn();
+
+      const epWrap = document.getElementById('mdEpisodesWrap');
+      const epGrid = document.getElementById('mdEpGrid');
+      epWrap.style.display = 'none';
+      epGrid.innerHTML = '';
+
+      document.getElementById('movieModal').classList.add('open');
+
+      if (Number(m.is_serial) === 1 || Number(m.episodes_count) > 1) {
+        let eps = [];
+        try {
+          const url = STATE.apiMode === 'php'
+            ? `api.php?action=episodes&code=${encodeURIComponent(m.code)}`
+            : null;
+          if (url) {
+            const r = await fetch(url);
+            if (r.ok) {
+              const j = await r.json();
+              if (j && j.ok && Array.isArray(j.episodes)) eps = j.episodes;
+            }
           }
-        }).catch(() => {});
-      }
+        } catch (e) {}
 
-      if (tg && tg.openTelegramLink) {
-        tg.openTelegramLink(deepUrl);
-        setTimeout(() => { try { tg.close(); } catch(e) {} }, 250);
-      } else {
-        window.location.href = deepUrl;
-      }
-    }
-
-    function openBotLink(url) {
-      if (tg && tg.openTelegramLink && url.startsWith("https://t.me/")) {
-        tg.openTelegramLink(url);
-      } else {
-        window.open(url, "_blank");
-      }
-    }
-
-    function selectCategory(cat, el) {
-      CURRENT_CAT = cat;
-      document.querySelectorAll("#categoryChips .chip").forEach(c => {
-        c.classList.remove("active", "active-green", "active-red");
-      });
-      if (el) {
-        if (cat === "top") el.classList.add("active-red");
-        else if (cat === "fav") el.classList.add("active-green");
-        else el.classList.add("active");
-      }
-      renderGrid();
-    }
-
-    function onSearchInput() {
-      const val = document.getElementById("searchInput").value;
-      document.getElementById("searchClear").style.display = val ? "block" : "none";
-      renderGrid();
-    }
-
-    function clearSearch() {
-      document.getElementById("searchInput").value = "";
-      document.getElementById("searchClear").style.display = "none";
-      renderGrid();
-    }
-
-    function switchTab(tab) {
-      document.querySelectorAll(".bottom-nav .nav-item").forEach(n => n.classList.remove("active"));
-      if (tab === "profile") {
-        document.getElementById("catalogView").style.display = "none";
-        document.getElementById("profileView").style.display = "block";
-        document.getElementById("navProfile").classList.add("active");
-      } else {
-        document.getElementById("catalogView").style.display = "block";
-        document.getElementById("profileView").style.display = "none";
-        if (tab === "serial") {
-          document.getElementById("navSerials").classList.add("active");
-          selectCategory("serial", document.querySelector('.chip[data-cat="serial"]'));
-        } else if (tab === "fav") {
-          document.getElementById("navFavs").classList.add("active");
-          selectCategory("fav", document.querySelector('.chip[data-cat="fav"]'));
-        } else {
-          document.getElementById("navHome").classList.add("active");
-          selectCategory("all", document.querySelector('.chip[data-cat="all"]'));
+        if (!eps.length && Number(m.episodes_count) > 1) {
+          for (let i = 1; i <= Number(m.episodes_count); i++) {
+            eps.push({ episode_num: i, title: `${i}-qism` });
+          }
+        }
+        if (eps.length > 1) {
+          STATE.modalEp = eps[0].episode_num;
+          epWrap.style.display = 'block';
+          document.getElementById('mdEpTitle').textContent = `${m.is_serial ? '📺 Serial qismlari' : '🎞 Qismlar'} (${eps.length} ta):`;
+          epGrid.innerHTML = eps.map((ep, idx) => `
+            <button class="ep-btn ${idx === 0 ? 'active' : ''}" onclick="selectModalEpisode(${Number(ep.episode_num)}, this)">
+              ${Number(ep.episode_num)}
+            </button>
+          `).join('');
+          updateModalWatchBtn();
         }
       }
     }
 
-    function toggleLanguage() {
-      CURRENT_LANG = CURRENT_LANG === "uz" ? "ru" : "uz";
-      localStorage.setItem("ml_lang", CURRENT_LANG);
-      applyLang();
+    function selectModalEpisode(num, btn) {
+      STATE.modalEp = num;
+      document.querySelectorAll('#mdEpGrid .ep-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      updateModalWatchBtn();
     }
 
-    function applyLang() {
-      document.getElementById("langToggle").textContent = CURRENT_LANG.toUpperCase();
-      if (CURRENT_LANG === "ru") {
-        document.getElementById("searchInput").placeholder = "Код (#1) или название фильма...";
-        document.getElementById("gridSectionTitle").textContent = "🎬 Фильмы и Сериалы";
-        document.getElementById("lblNavHome").textContent = "Каталог";
-        document.getElementById("lblNavSerials").textContent = "Сериалы";
-        document.getElementById("lblNavFavs").textContent = "Избранное";
-        document.getElementById("lblNavProfile").textContent = "Профиль";
+    function updateModalWatchBtn() {
+      const m = STATE.modalMovie;
+      if (!m) return;
+      const btn = document.getElementById('mdWatchBtn');
+      btn.textContent = STATE.modalEp
+        ? `✈️ Botda ${STATE.modalEp}-qismni ko'rish (#${m.code})`
+        : `✈️ Telegram botda ko'rish (#${m.code})`;
+    }
+
+    function updateModalFavUI() {
+      const m = STATE.modalMovie;
+      if (!m) return;
+      const isF = STATE.favorites.has(String(m.code));
+      const btn = document.getElementById('mdFavBtn');
+      btn.classList.toggle('active', isF);
+      btn.textContent = isF ? '❤️' : '🤍';
+    }
+
+    async function toggleCurrentFavorite() {
+      const m = STATE.modalMovie;
+      if (!m) return;
+      const code = String(m.code);
+      if (STATE.favorites.has(code)) {
+        STATE.favorites.delete(code);
+        showToast('💔 Sevimlilardan olib tashlandi');
       } else {
-        document.getElementById("searchInput").placeholder = "Kino kodi (#1) yoki nomini yozing...";
-        document.getElementById("gridSectionTitle").textContent = "🎬 Kinolar va Seriallar";
-        document.getElementById("lblNavHome").textContent = "Katalog";
-        document.getElementById("lblNavSerials").textContent = "Seriallar";
-        document.getElementById("lblNavFavs").textContent = "Saqlangan";
-        document.getElementById("lblNavProfile").textContent = "Profil";
+        STATE.favorites.add(code);
+        showToast('❤️ Sevimlilarga qo\'shildi!');
+      }
+      localStorage.setItem('ml_favs', JSON.stringify([...STATE.favorites]));
+      updateModalFavUI();
+      if (STATE.activeView === 'favorites') renderFavorites();
+      document.getElementById('profFavCount').textContent = STATE.favorites.size;
+
+      if (tg && tg.initData) {
+        const endpoint = STATE.apiMode === 'php' ? 'api.php?action=toggle_fav' : '/api/toggle_fav';
+        try {
+          await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: tg.initData, code }),
+          });
+        } catch (e) {}
       }
     }
 
-    initTelegramAuth();
-    applyLang();
-    loadCatalog();
+    function watchCurrentMovie() {
+      const m = STATE.modalMovie;
+      if (!m) return;
+      const param = STATE.modalEp ? `${m.code}_${STATE.modalEp}` : `${m.code}`;
+      const deepLink = `https://t.me/${STATE.botUsername}?start=${encodeURIComponent(param)}`;
+      openTelegramUrl(deepLink);
+    }
+
+    function closeMovieModal() {
+      document.getElementById('movieModal').classList.remove('open');
+    }
+
+    // ==================== TRAILER MODAL ====================
+    function getYoutubeEmbed(url) {
+      if (!url) return '';
+      const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+      return m ? `https://www.youtube.com/embed/${m[1]}?autoplay=1&rel=0` : '';
+    }
+
+    function openTrailerItem(idx) {
+      const tr = (STATE._renderedTrailers || [])[idx];
+      if (!tr) return;
+      if (tr.movieCode) {
+        openMovieModal(tr.movieCode);
+        return;
+      }
+      document.getElementById('trModalTitle').textContent = tr.title;
+      document.getElementById('trModalNote').textContent = tr.release_note || 'Tez kunda Movie Land da!';
+      const embed = getYoutubeEmbed(tr.video_url);
+      const body = document.getElementById('trModalBody');
+      if (embed) {
+        body.innerHTML = `<iframe width="100%" height="240" src="${esc(embed)}" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen style="display:block;"></iframe>`;
+      } else {
+        body.innerHTML = `<img src="${esc(tr.poster_url)}" alt="${esc(tr.title)}" style="width:100%;max-height:320px;object-fit:cover;display:block;" />`;
+      }
+      document.getElementById('trailerModal').classList.add('open');
+    }
+
+    function closeTrailerModal() {
+      document.getElementById('trailerModal').classList.remove('open');
+      document.getElementById('trModalBody').innerHTML = '';
+    }
+
+    function openTelegramUrl(url) {
+      if (tg && tg.openTelegramLink && url.startsWith('https://t.me/')) {
+        try {
+          tg.openTelegramLink(url);
+          return;
+        } catch (e) {}
+      }
+      window.open(url, '_blank', 'noopener');
+    }
+
+    // ==================== INIT ====================
+    (async function initApp() {
+      const data = await fetchBootstrap();
+      if (data.config) STATE.config = Object.assign(STATE.config, data.config);
+      if (data.config && data.config.bot_username) STATE.botUsername = data.config.bot_username;
+      if (data.config && data.config.channel_url) STATE.channelUrl = data.config.channel_url;
+      if (data.config && data.config.group_url) STATE.groupUrl = data.config.group_url;
+
+      STATE.movies = Array.isArray(data.movies) ? data.movies : [];
+      STATE.trailers = Array.isArray(data.trailers) ? data.trailers : [];
+      STATE.genres = (Array.isArray(data.genres) && data.genres.length)
+        ? data.genres
+        : deriveGenresFromMovies(STATE.movies);
+
+      renderHome();
+      renderProfile();
+      await authenticateTelegramUser();
+    })();
   </script>
 </body>
 </html>

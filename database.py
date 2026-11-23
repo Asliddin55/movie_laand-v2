@@ -90,6 +90,7 @@ async def init_db():
             ("role", "TEXT DEFAULT 'user'"),
             ("permissions", "TEXT DEFAULT '[]'"),
             ("sadmin_auth_until", "TEXT DEFAULT NULL"),
+            ("web_admin_auth_until", "TEXT DEFAULT NULL"),
             ("is_premium", "INTEGER DEFAULT 0"),
             ("premium_until", "TEXT DEFAULT NULL"),
             ("vip_tag", "TEXT DEFAULT 'PREMIUM'"),
@@ -237,6 +238,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS archive_catalog (
                 msg_id INTEGER PRIMARY KEY,
                 file_id TEXT DEFAULT '',
+                file_unique_id TEXT DEFAULT '',
                 file_name TEXT DEFAULT '',
                 video_height INTEGER DEFAULT 0,
                 raw_caption TEXT DEFAULT '',
@@ -247,9 +249,31 @@ async def init_db():
                 genre TEXT DEFAULT '🔥 Jangari',
                 quality TEXT DEFAULT '1080p Full HD',
                 is_serial INTEGER DEFAULT 0,
+                season_num INTEGER DEFAULT 1,
                 part_num INTEGER DEFAULT 1,
                 is_imported INTEGER DEFAULT 0,
                 imported_code TEXT DEFAULT ''
+            )
+        """)
+
+        for col_name, col_def in [
+            ("file_unique_id", "TEXT DEFAULT ''"),
+            ("season_num", "INTEGER DEFAULT 1")
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE archive_catalog ADD COLUMN {col_name} {col_def}")
+            except Exception:
+                pass
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS webapp_trailers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                poster_url TEXT DEFAULT '',
+                video_url TEXT DEFAULT '',
+                year TEXT DEFAULT '2026',
+                badge TEXT DEFAULT 'Tez kunda',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -275,6 +299,13 @@ async def init_db():
             ("tmdb_auto_poster", "1"),
             ("bot_active", "1"),
             ("super_admin_password", config.DEFAULT_SUPER_ADMIN_PASSWORD),
+            ("web_admin_password", config.DEFAULT_WEB_ADMIN_PASSWORD),
+            ("webapp_url", config.WEBAPP_URL),
+            ("webapp_enabled", "1"),
+            ("webapp_title", "Movie Land"),
+            ("webapp_subtitle", "O'zbek tilidagi kinolar • 24/7"),
+            ("webapp_banner", ""),
+            ("webapp_visits", "0"),
             ("free_order_limit", "1"),
             ("premium_order_limit", "5"),
             ("daily_reward_amount", config.DEFAULT_DAILY_REWARD),
@@ -285,6 +316,8 @@ async def init_db():
             ("payment_card_info", config.DEFAULT_PAYMENT_CARD),
             ("tmdb_api_key", config.TMDB_API_KEY),
             ("tmdb_read_token", config.TMDB_READ_TOKEN),
+            ("kinopoisk_uz_token", config.KINOPOISK_UZ_TOKEN),
+            ("omdb_api_key", config.OMDB_API_KEY),
             ("auto_backup_hours", "168"),
             ("auto_backup_target", config.DEFAULT_ARCHIVE_CHANNEL_ID),
             ("ai_enabled", "1"),
@@ -309,6 +342,11 @@ async def init_db():
             "UPDATE settings SET value = ? WHERE key = 'tmdb_read_token' AND (value IS NULL OR value = '')",
             (config.TMDB_READ_TOKEN,)
         )
+        # Eski GitHub raw.githack.com WebApp URL qolib ketgan bo'lsa, MyXvest domeniga yangilaymiz
+        await db.execute(
+            "UPDATE settings SET value = ? WHERE key = 'webapp_url' AND (value IS NULL OR value = '' OR value LIKE '%githack%' OR value LIKE '%github%')",
+            (config.WEBAPP_URL,)
+        )
 
         # Yagona rasmiy Mavzuli Guruhni (-1002748514315) avtomatik ulab qo'yish
         await db.execute("DELETE FROM topic_channels WHERE chat_id != ?", (config.MAIN_TOPIC_GROUP_ID,))
@@ -323,10 +361,7 @@ async def init_db():
             "🌐 Rasmiy Mavzuli Guruh"
         ))
 
-        # Arxivdan tashqari 2 ta asosiy kanal/guruhni majburiy obunaga avto-ulash:
-        # 1) Post yuboradigan asosiy kanal (@movieee_land / -1002923811980)
-        # 2) Mavzuli Guruh (-1002748514315)
-        # Arxiv kanali (-1003124847141) majburiy obunada bo'lmasligi shart!
+        # Arxivdan tashqari 2 ta asosiy kanal/guruhni majburiy obunaga avto-ulash
         await db.execute("UPDATE channels SET channel_id = ? WHERE channel_id = '-1003536154725'", (config.DEFAULT_POST_CHANNEL_CHAT_ID,))
         await db.execute("DELETE FROM channels WHERE channel_id = ?", (config.DEFAULT_ARCHIVE_CHANNEL_ID,))
         await db.execute("""
@@ -352,14 +387,25 @@ async def init_db():
                 norm_ch = normalize_channel_target(row[0])
                 await db.execute("UPDATE settings SET value = ? WHERE key = 'auto_post_channel'", (norm_ch,))
 
+        # Bot Egasining (OWNER_IDS) Super Administrator maqomini 100% kafolatli tiklash
+        all_perms_json = json.dumps(list(config.PERMISSIONS.keys()))
+        for oid in getattr(config, "OWNER_IDS", set()):
+            await db.execute(
+                "UPDATE users SET role = 'superadmin', is_admin = 1, permissions = ? WHERE user_id = ?",
+                (all_perms_json, int(oid))
+            )
+
         await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_name ON movies(name);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_genre ON movies(genre);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_views ON movies(views DESC);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_serial ON movies(is_serial);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_created ON movies(created_at DESC);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_movies_file_id ON movies(file_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_episodes_lookup ON episodes(movie_code, episode_num);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_episodes_fid ON episodes(file_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_date ON orders(user_id, created_at);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_arch_grouping ON archive_catalog(is_serial, is_imported, base_title);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_arch_fid ON archive_catalog(file_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_users_premium_chk ON users(is_premium, premium_until);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_users_ref_lookup ON users(ref_by);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_user_time ON history(user_id, viewed_at DESC);")
@@ -372,29 +418,6 @@ async def init_db():
             UPDATE archive_catalog SET is_imported = 0, imported_code = ''
             WHERE is_imported = 1 AND imported_code != '' AND imported_code NOT IN (SELECT code FROM movies);
         """)
-
-        # Foydalanuvchi talabi: Istalgan eski "Iztopar" seriali qoldiqlarini to'liq tozalash
-        async with db.execute("SELECT code FROM movies WHERE name LIKE '%iztopar%'") as cur:
-            iz_rows = await cur.fetchall()
-        for (iz_code,) in iz_rows:
-            await db.execute("DELETE FROM episodes WHERE movie_code = ?", (str(iz_code),))
-            await db.execute("DELETE FROM active_sessions WHERE movie_code = ?", (str(iz_code),))
-            await db.execute("DELETE FROM favorites WHERE movie_code = ?", (str(iz_code),))
-            await db.execute("DELETE FROM history WHERE movie_code = ?", (str(iz_code),))
-            await db.execute("DELETE FROM reactions WHERE movie_code = ?", (str(iz_code),))
-            await db.execute("DELETE FROM movies WHERE code = ?", (str(iz_code),))
-            await db.execute("UPDATE archive_catalog SET is_imported = 0, imported_code = '' WHERE imported_code = ?", (str(iz_code),))
-
-        # archive_catalog dagi Iztopar qismlarini 1..43 qilib qat'iy tartiblash
-        async with db.execute("SELECT msg_id FROM archive_catalog WHERE base_title LIKE '%iztopar%' ORDER BY msg_id") as cur:
-            cat_iz = await cur.fetchall()
-        if cat_iz:
-            for seq_i, (m_id,) in enumerate(cat_iz, 1):
-                await db.execute("""
-                    UPDATE archive_catalog 
-                    SET part_num = ?, parsed_name = ?, is_imported = 0, imported_code = '', is_serial = 1, base_title = 'Iztopar Afsonasi'
-                    WHERE msg_id = ?
-                """, (seq_i, f"Iztopar Afsonasi ({seq_i}-qism)", m_id))
 
         await db.commit()
     finally:
@@ -644,8 +667,19 @@ async def get_user(user_id: int):
     finally:
         await db.close()
 
+def is_owner_id(user_id: int) -> bool:
+    try:
+        return int(user_id) in getattr(config, "OWNER_IDS", {6188085308})
+    except Exception:
+        return False
+
+async def is_super_admin(user_id: int) -> bool:
+    if is_owner_id(user_id) or user_id in config.ADMINS:
+        return True
+    return (await get_user_role(user_id)) == "superadmin"
+
 async def get_user_role(user_id: int) -> str:
-    if user_id in config.ADMINS:
+    if is_owner_id(user_id) or user_id in config.ADMINS:
         return "superadmin"
     u = await get_user(user_id)
     if not u:
@@ -653,7 +687,10 @@ async def get_user_role(user_id: int) -> str:
     role = u.get("role") or ("admin" if u.get("is_admin") else "user")
     return role
 
-async def set_user_role(user_id: int, role: str):
+async def set_user_role(user_id: int, role: str) -> bool:
+    # Bot Egasi (OWNER_IDS) ning lavozimi hech qachon pasaytirilmaydi!
+    if is_owner_id(user_id) and role != "superadmin":
+        return False
     perms = config.DEFAULT_ROLE_PERMS.get(role, [])
     is_adm = 1 if role in ("moderator", "admin", "superadmin") else 0
     db = await get_db_conn()
@@ -666,11 +703,12 @@ async def set_user_role(user_id: int, role: str):
             (role, json.dumps(perms), is_adm, user_id)
         )
         await db.commit()
+        return True
     finally:
         await db.close()
 
 async def get_user_permissions(user_id: int) -> list:
-    if user_id in config.ADMINS:
+    if is_owner_id(user_id) or user_id in config.ADMINS:
         return list(config.PERMISSIONS.keys())
     u = await get_user(user_id)
     if not u:
@@ -693,6 +731,8 @@ async def has_permission(user_id: int, perm_key: str) -> bool:
     return perm_key in perms
 
 async def toggle_user_permission(user_id: int, perm_key: str) -> bool:
+    if is_owner_id(user_id):
+        return True
     perms = await get_user_permissions(user_id)
     if perm_key in perms:
         perms.remove(perm_key)
@@ -737,6 +777,58 @@ async def grant_sadmin_session(user_id: int):
             (perms, until_str, user_id)
         )
         await db.commit()
+    finally:
+        await db.close()
+
+async def is_web_admin_session_valid(user_id: int) -> bool:
+    u = await get_user(user_id)
+    if not u or not u.get("web_admin_auth_until"):
+        return False
+    try:
+        until_dt = datetime.fromisoformat(u["web_admin_auth_until"])
+        return datetime.utcnow() < until_dt
+    except Exception:
+        return False
+
+async def grant_web_admin_session(user_id: int, hours: int = 24):
+    until_str = (datetime.utcnow() + timedelta(hours=int(hours or 24))).isoformat()
+    db = await get_db_conn()
+    try:
+        await db.execute(
+            "UPDATE users SET web_admin_auth_until = ? WHERE user_id = ?",
+            (until_str, user_id)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+async def get_webapp_trailers(limit: int = 20) -> list:
+    db = await get_db_conn()
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM webapp_trailers ORDER BY id DESC LIMIT ?", (limit,)) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+
+async def add_webapp_trailer(title: str, poster_url: str, video_url: str = "", year: str = "2026", badge: str = "Tez kunda") -> int:
+    db = await get_db_conn()
+    try:
+        cur = await db.execute(
+            "INSERT INTO webapp_trailers (title, poster_url, video_url, year, badge) VALUES (?, ?, ?, ?, ?)",
+            (title.strip(), poster_url.strip(), video_url.strip(), str(year).strip(), badge.strip())
+        )
+        await db.commit()
+        return cur.lastrowid
+    finally:
+        await db.close()
+
+async def delete_webapp_trailer(trailer_id: int) -> bool:
+    db = await get_db_conn()
+    try:
+        res = await db.execute("DELETE FROM webapp_trailers WHERE id = ?", (int(trailer_id),))
+        await db.commit()
+        return res.rowcount > 0
     finally:
         await db.close()
 
@@ -1733,10 +1825,50 @@ async def close_order(order_id: int):
         await db.close()
 
 
+def _norm_db_title(text: str) -> str:
+    t = (text or "").lower()
+    t = re.sub(r"[ʻ‘’`ʼ']", "", t)
+    t = re.sub(r"[^\w\s]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+async def find_existing_movie_duplicate(name: str = "", file_id: str = "") -> dict | None:
+    """
+    Bazadagi movies va episodes jadvallarida ushbu kino yoki video allaqachon mavjud-yo'qligini
+    100% qat'iy tekshiradi (ham file_id bo'yicha, ham normallashtirilgan nom bo'yicha).
+    """
+    fid = (file_id or "").strip()
+    norm_n = _norm_db_title(name)
+    db = await get_db_conn()
+    try:
+        db.row_factory = aiosqlite.Row
+        if fid:
+            async with db.execute("SELECT * FROM movies WHERE file_id = ? LIMIT 1", (fid,)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    return dict(row)
+            async with db.execute(
+                "SELECT m.* FROM movies m JOIN episodes e ON m.code = e.movie_code WHERE e.file_id = ? LIMIT 1",
+                (fid,)
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    return dict(row)
+        if norm_n:
+            async with db.execute("SELECT * FROM movies") as cur:
+                for row in await cur.fetchall():
+                    if _norm_db_title(row["name"]) == norm_n:
+                        return dict(row)
+        return None
+    finally:
+        await db.close()
+
+
 # ===================== ARXIV KATALOGI ( AQLLI KINO VA SERIAL YUKLASH ) =====================
 async def upsert_archive_catalog_item(
     msg_id: int,
     file_id: str = "",
+    file_unique_id: str = "",
     file_name: str = "",
     video_height: int = 0,
     raw_caption: str = "",
@@ -1747,31 +1879,74 @@ async def upsert_archive_catalog_item(
     genre: str = "🔥 Jangari",
     quality: str = "1080p Full HD",
     is_serial: int = 0,
+    season_num: int = 1,
     part_num: int = 1,
     is_imported: int = 0,
     imported_code: str = ""
 ):
     db = await get_db_conn()
     try:
-        async with db.execute("SELECT file_id, is_imported, imported_code FROM archive_catalog WHERE msg_id = ?", (msg_id,)) as cur:
+        async with db.execute("SELECT file_id, file_unique_id, is_imported, imported_code FROM archive_catalog WHERE msg_id = ?", (msg_id,)) as cur:
             existing = await cur.fetchone()
         if existing:
             if not file_id and existing[0]:
                 file_id = existing[0]
-            if not is_imported and existing[1]:
-                is_imported = existing[1]
-            if not imported_code and existing[2]:
-                imported_code = existing[2]
+            if not file_unique_id and existing[1]:
+                file_unique_id = existing[1]
+            if not is_imported and existing[2]:
+                is_imported = existing[2]
+            if not imported_code and existing[3]:
+                imported_code = existing[3]
         await db.execute("""
             INSERT OR REPLACE INTO archive_catalog
-            (msg_id, file_id, file_name, video_height, raw_caption, parsed_name, base_title,
-             year, country, genre, quality, is_serial, part_num, is_imported, imported_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (msg_id, file_id, file_unique_id, file_name, video_height, raw_caption, parsed_name, base_title,
+             year, country, genre, quality, is_serial, season_num, part_num, is_imported, imported_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            msg_id, file_id, file_name, video_height, raw_caption, parsed_name, base_title,
-            year, country, genre, quality, is_serial, part_num, is_imported, imported_code
+            msg_id, file_id, file_unique_id, file_name, video_height, raw_caption, parsed_name, base_title,
+            year, country, genre, quality, is_serial, max(1, int(season_num or 1)), max(1, int(part_num or 1)), is_imported, imported_code
         ))
         await db.commit()
+    finally:
+        await db.close()
+
+async def auto_promote_archive_serials() -> int:
+    """
+    Arxiv katalogini skanerlashdan so'ng avtomatik tahlil:
+    Mashhur ko'p qismli kino franshizalaridan tashqari, bir xil base_title ostida 6 ta yoki undan ko'p
+    qismi (yoki 2+ fasli) mavjud bo'lgan barcha guruhlarni avtomatik is_serial = 1 qilib belgilaydi!
+    """
+    KNOWN_MOVIE_FRANCHISES = {
+        "garri potter", "snayper", "forsaj", "predator xishnik", "mumiyo", "ip man",
+        "orgimchak odam", "labirintdagilar", "beethoven", "shahzoda va bori", "sonic",
+        "krid", "padington", "jumanji", "chaqmoq makvin", "jodu saltanati",
+        "lara kroft dahma talonchisi", "polat alximik", "yomon yigitlar",
+        "ilon hamlasi", "malikaning kundaligi", "masxaraboz ono penni vays",
+        "transformerlar", "qasoskorlar", "temir odam", "karib dengizi qaroqchilari",
+        "uzuklar hukmdori", "hobbit", "matritsa", "terminator", "rembo", "rokki"
+    }
+    db = await get_db_conn()
+    promoted = 0
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT msg_id, base_title, season_num, part_num, is_serial FROM archive_catalog WHERE is_serial = 0") as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        groups = {}
+        for r in rows:
+            k = _norm_db_title(r.get("base_title") or "")
+            if not k or k in KNOWN_MOVIE_FRANCHISES:
+                continue
+            groups.setdefault(k, []).append(r)
+        for k, items in groups.items():
+            uniq_eps = set((int(it.get("season_num") or 1), int(it.get("part_num") or 1)) for it in items)
+            has_multi_season = len(set(int(it.get("season_num") or 1) for it in items)) > 1
+            if len(uniq_eps) >= 6 or has_multi_season:
+                for it in items:
+                    await db.execute("UPDATE archive_catalog SET is_serial = 1 WHERE msg_id = ?", (it["msg_id"],))
+                promoted += 1
+        if promoted:
+            await db.commit()
+        return promoted
     finally:
         await db.close()
 
@@ -1813,14 +1988,14 @@ async def replace_archive_catalog_msg_id(old_mid: int, new_mid: int, new_caption
             await db.execute("DELETE FROM archive_catalog WHERE msg_id = ?", (old_mid,))
             await db.execute("""
                 INSERT OR REPLACE INTO archive_catalog
-                (msg_id, file_id, file_name, video_height, raw_caption, parsed_name, base_title,
-                 year, country, genre, quality, is_serial, part_num, is_imported, imported_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (msg_id, file_id, file_unique_id, file_name, video_height, raw_caption, parsed_name, base_title,
+                 year, country, genre, quality, is_serial, season_num, part_num, is_imported, imported_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                new_mid, fid, d.get("file_name", ""), d.get("video_height", 0),
+                new_mid, fid, d.get("file_unique_id", ""), d.get("file_name", ""), d.get("video_height", 0),
                 new_caption, d.get("parsed_name", ""), d.get("base_title", ""),
                 d.get("year", "2024"), d.get("country", "AQSH"), d.get("genre", "🔥 Jangari"),
-                d.get("quality", "1080p Full HD"), d.get("is_serial", 0), d.get("part_num", 1),
+                d.get("quality", "1080p Full HD"), d.get("is_serial", 0), d.get("season_num", 1), d.get("part_num", 1),
                 d.get("is_imported", 0), d.get("imported_code", "")
             ))
             await db.commit()
@@ -1845,21 +2020,24 @@ async def mark_archive_catalog_imported(msg_ids: list, movie_code: str):
     finally:
         await db.close()
 
-def _group_and_dedup_archive_rows(all_rows: list, prefix: str = "movie") -> list:
+def _group_and_dedup_archive_rows(all_rows: list, prefix: str = "movie", existing_titles: set = None, existing_fids: set = None) -> list:
     """
-    archive_catalog qatorlarini base_title bo'yicha guruhlaydi,
-    har bir guruh ichidagi dublikat part_num larni (masalan Mumiyo 3 marta yoki Ip Man 2 marta tashlangan bo'lsa)
-    filtrlab, file_id mavjud bo'lgan eng toza qismlarni 1, 2, 3... tartibda qaytaradi.
-    Agar guruhning barcha noyob qismlari (unique part_num) allaqachon yuklangan bo'lsa -> is_fully_imported = True.
+    archive_catalog qatorlarini normallashtirilgan base_title bo'yicha guruhlaydi:
+    - Ko'p faslli seriallarda (season_num, part_num) kalitidan foydalanib, 2-fasl 1-qismini 1-fasl 1-qismi bilan aralashtirmaydi!
+    - Bir xil file_unique_id / file_id yoki bir xil (season_num, part_num) dublikatlarni 100% filtrlaydi!
+    - Agar kino/serial movies jadvalida allaqachon mavjud bo'lsa (existing_titles / existing_fids), is_fully_imported = True deb belgilaydi!
     """
+    existing_titles = existing_titles or set()
+    existing_fids = existing_fids or set()
     groups_map = {}
     group_order = []
     for r in all_rows:
         btitle = (r.get("base_title") or r.get("parsed_name") or f"{prefix}_{r['msg_id']}").strip()
-        key = btitle.lower()
+        key = _norm_db_title(btitle) or btitle.lower()
         if key not in groups_map:
             groups_map[key] = {
                 "base_title": btitle,
+                "norm_key": key,
                 "first_msg_id": r["msg_id"],
                 "raw_items": []
             }
@@ -1870,21 +2048,34 @@ def _group_and_dedup_archive_rows(all_rows: list, prefix: str = "movie") -> list
     for key in group_order:
         grp = groups_map[key]
         items = grp["raw_items"]
-        # Har bir part_num bo'yicha guruhlab, file_id borini va birinchi msg_id ni tanlaymiz
         by_part = {}
+        seen_fuids = set()
         for it in items:
-            pnum = int(it.get("part_num") or 1)
-            by_part.setdefault(pnum, []).append(it)
+            fuid = (it.get("file_unique_id") or "").strip()
+            if fuid:
+                if fuid in seen_fuids:
+                    continue
+                seen_fuids.add(fuid)
+            snum = max(1, int(it.get("season_num") or 1))
+            pnum = max(1, int(it.get("part_num") or 1))
+            by_part.setdefault((snum, pnum), []).append(it)
 
         unique_parts = []
         all_parts_imported = True
-        for pnum in sorted(by_part.keys()):
-            p_candidates = by_part[pnum]
-            if not any(bool(c.get("is_imported")) for c in p_candidates):
+        for sp_key in sorted(by_part.keys()):
+            p_candidates = by_part[sp_key]
+            part_already_in_db = any(
+                bool(c.get("is_imported")) or ((c.get("file_id") or "").strip() in existing_fids)
+                for c in p_candidates
+            )
+            if not part_already_in_db:
                 all_parts_imported = False
-            # file_id mavjud bo'lganini ustuvor tanlaymiz
             p_sorted = sorted(p_candidates, key=lambda x: (0 if (x.get("file_id") or "").strip() else 1, x["msg_id"]))
             unique_parts.append(p_sorted[0])
+
+        # Agar yakka kino (1 qism) nomi bazada allaqachon mavjud bo'lsa, dublikat qo'shmaslik uchun imported hisoblaymiz
+        if len(unique_parts) == 1 and key in existing_titles:
+            all_parts_imported = True
 
         grouped_list.append({
             "base_title": grp["base_title"],
@@ -1896,15 +2087,31 @@ def _group_and_dedup_archive_rows(all_rows: list, prefix: str = "movie") -> list
     return grouped_list
 
 
+async def _get_existing_movies_sets(db) -> tuple[set, set]:
+    existing_titles = set()
+    existing_fids = set()
+    async with db.execute("SELECT name, file_id FROM movies") as cur:
+        for row in await cur.fetchall():
+            if row[0]:
+                existing_titles.add(_norm_db_title(row[0]))
+            if row[1]:
+                existing_fids.add(row[1].strip())
+    async with db.execute("SELECT file_id FROM episodes") as cur:
+        for row in await cur.fetchall():
+            if row[0]:
+                existing_fids.add(row[0].strip())
+    return existing_titles, existing_fids
+
+
 async def get_unimported_archive_movies_grouped(limit_groups: int = 10) -> list:
     """
     Arxivdagi hali yuklanmagan KINOLARNI (seriallarni skip qilib!) eng boshidan tartib bilan oladi.
-    Agar kinoning bir nechta qismlari bo'lsa (hatto orada boshqa kino bo'lsa yoki 3-qism 2-qismdan oldin tursa ham),
-    barchasini bitta 'base_title' guruhiga jamlaydi, dublikatlarni tozalaydi va qismlarni 1, 2, 3... tartibida saralaydi!
+    Bazada allaqachon mavjud kinolarni 100% filtrlaydi (dublikat bo'lmaydi!).
     """
     db = await get_db_conn()
     try:
         db.row_factory = aiosqlite.Row
+        existing_titles, existing_fids = await _get_existing_movies_sets(db)
         async with db.execute("""
             SELECT * FROM archive_catalog
             WHERE is_serial = 0
@@ -1912,7 +2119,9 @@ async def get_unimported_archive_movies_grouped(limit_groups: int = 10) -> list:
         """) as cur:
             all_rows = [dict(r) for r in await cur.fetchall()]
 
-        all_groups = _group_and_dedup_archive_rows(all_rows, prefix="movie")
+        all_groups = _group_and_dedup_archive_rows(
+            all_rows, prefix="movie", existing_titles=existing_titles, existing_fids=existing_fids
+        )
         result_groups = [g for g in all_groups if not g["is_fully_imported"]]
         return result_groups[:limit_groups]
     finally:
@@ -1921,12 +2130,13 @@ async def get_unimported_archive_movies_grouped(limit_groups: int = 10) -> list:
 
 async def get_unimported_archive_serials_grouped(limit_groups: int = 5) -> list:
     """
-    Arxivdagi hali yuklanmagan SERIALLARNI (masalan, Afsungar Merlin 1..65, Envel Qahramonlari 1..52, Iztopar Afsonasi 1..43)
-    tahlil qilib, har bir serialning barcha noyob qismlarini 1 ta serial kodi ostida 1, 2, 3... qilib jamlaydi.
+    Arxivdagi hali yuklanmagan SERIALLARNI tahlil qilib, har bir serialning barcha fasl va
+    noyob qismlarini 1 ta serial kodi ostida 1, 2, 3... qilib jamlaydi.
     """
     db = await get_db_conn()
     try:
         db.row_factory = aiosqlite.Row
+        existing_titles, existing_fids = await _get_existing_movies_sets(db)
         async with db.execute("""
             SELECT * FROM archive_catalog
             WHERE is_serial = 1
@@ -1934,7 +2144,9 @@ async def get_unimported_archive_serials_grouped(limit_groups: int = 5) -> list:
         """) as cur:
             all_rows = [dict(r) for r in await cur.fetchall()]
 
-        all_groups = _group_and_dedup_archive_rows(all_rows, prefix="serial")
+        all_groups = _group_and_dedup_archive_rows(
+            all_rows, prefix="serial", existing_titles=existing_titles, existing_fids=existing_fids
+        )
         result_groups = [g for g in all_groups if not g["is_fully_imported"]]
         return result_groups[:limit_groups]
     finally:
@@ -1971,13 +2183,18 @@ async def get_archive_catalog_stats() -> dict:
     db = await get_db_conn()
     try:
         db.row_factory = aiosqlite.Row
+        existing_titles, existing_fids = await _get_existing_movies_sets(db)
         async with db.execute("SELECT * FROM archive_catalog WHERE is_serial = 0 ORDER BY msg_id ASC") as cur:
             movie_rows = [dict(r) for r in await cur.fetchall()]
         async with db.execute("SELECT * FROM archive_catalog WHERE is_serial = 1 ORDER BY msg_id ASC") as cur:
             serial_rows = [dict(r) for r in await cur.fetchall()]
 
-        movie_groups = _group_and_dedup_archive_rows(movie_rows, prefix="movie")
-        serial_groups = _group_and_dedup_archive_rows(serial_rows, prefix="serial")
+        movie_groups = _group_and_dedup_archive_rows(
+            movie_rows, prefix="movie", existing_titles=existing_titles, existing_fids=existing_fids
+        )
+        serial_groups = _group_and_dedup_archive_rows(
+            serial_rows, prefix="serial", existing_titles=existing_titles, existing_fids=existing_fids
+        )
 
         total_movie_groups = len(movie_groups)
         rem_movie_groups = sum(1 for g in movie_groups if not g["is_fully_imported"])

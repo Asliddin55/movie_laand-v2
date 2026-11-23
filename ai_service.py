@@ -409,6 +409,8 @@ def normalize_country(raw_country: str) -> str:
         (r"\bКанада\b", "Kanada"),
         (r"\bAustralia\b", "Avstraliya"),
         (r"\bАвстралия\b", "Avstraliya"),
+        (r"\bNew\s+Zealand\b", "Yangi Zelandiya"),
+        (r"\bНовая\s+Зеландия\b", "Yangi Zelandiya"),
         (r"\bTurkey\b", "Turkiya"),
         (r"\bТурция\b", "Turkiya"),
         (r"\bNorway\b", "Norvegiya"),
@@ -842,9 +844,10 @@ def parse_archive_caption(raw_text: str, file_name: str = "", video_height: int 
     name = re.sub(r"\(\s*(19[7-9]\d|20[0-2]\d)\s*\)", "", name).strip(" -–:«»\"")
     name = re.sub(r"\s+", " ", name)
 
-    # SERIAL VA QISM RAQAMINI ANIQLASH
+    # SERIAL, FASL VA QISM RAQAMINI ANIQLASH
     bt_info = extract_base_title_and_part(name, raw_caption=raw_text, file_name=file_name)
     is_serial = bt_info["is_serial"]
+    season_num = bt_info.get("season_num", 1)
     part_num = bt_info["part_num"]
     base_title = bt_info["base_title"]
     episode_num = part_num
@@ -856,6 +859,7 @@ def parse_archive_caption(raw_text: str, file_name: str = "", video_height: int 
     return {
         "name": base_name,
         "base_title": base_title,
+        "season_num": season_num,
         "part_num": part_num,
         "raw_title": name,
         "is_serial": is_serial,
@@ -1368,7 +1372,6 @@ EXACT_TMDB_SEARCH_MAP = {
     "ballerina qasos": ("Ballerina", "2023", False),
     "berlin uzra parvoz": ("Retribution", "2023", False),
     "bezos amazon afsonasi": ("Bezos The Beginning", "2023", False),
-    "bravo jamoasi 2024 yilgi konsert dasturi": ("Kevin Hart: Reality Check", "2023", False),
     "dedpul 2": ("Deadpool 2", "2018", False),
     "dedpul va rosomaxa": ("Deadpool & Wolverine", "2024", False),
     "eramizdan song": ("After Earth", "2013", False),
@@ -1512,80 +1515,140 @@ def _match_exact_search_entry(norm_n: str):
     return None
 
 
+_SHARED_HTTP_SESSION: aiohttp.ClientSession | None = None
+
+async def _get_http_session() -> aiohttp.ClientSession:
+    global _SHARED_HTTP_SESSION
+    if _SHARED_HTTP_SESSION is None or _SHARED_HTTP_SESSION.closed:
+        connector = aiohttp.TCPConnector(limit=100, ttl_dns_cache=300)
+        _SHARED_HTTP_SESSION = aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=12)
+        )
+    return _SHARED_HTTP_SESSION
+
+async def close_http_session():
+    global _SHARED_HTTP_SESSION
+    if _SHARED_HTTP_SESSION is not None and not _SHARED_HTTP_SESSION.closed:
+        await _SHARED_HTTP_SESSION.close()
+        _SHARED_HTTP_SESSION = None
+
+
+def _extract_season_and_episode(raw_n: str, raw_caption: str = "", file_name: str = "") -> tuple[int, int, bool]:
+    """
+    Nom, caption va fayl nomidan (season_num, episode_num, has_serial_marker) ni 100% aniqlikda ajratadi.
+    Barcha formatlarni qo'llab-quvvatlaydi:
+      - S02E14 / s1e5 / 2F14Q / 2F1Q14Q
+      - 2-fasl 14-qism / 1-sezon 5-seriya / 2-mavsum 3-epizod
+      - 14-qism / 25-seriya / 12-epizod / Qism: 14 / Seriya 5
+    """
+    season = 1
+    episode = 1
+    found_marker = False
+    combined = f"{raw_n}\n{raw_caption}\n{file_name}"
+
+    # 1. Aniq S01E05 yoki 1F5Q formatlar
+    se_m = (
+        re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", file_name)
+        or re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", raw_n)
+        or re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", raw_caption)
+    )
+    if se_m:
+        return max(1, int(se_m.group(1))), max(1, int(se_m.group(2))), True
+
+    fq_m = (
+        re.search(r"(\d{1,2})F\d+Q(\d{1,3})Q", file_name, flags=re.IGNORECASE)
+        or re.search(r"(\d{1,2})F(\d{1,3})Q", file_name, flags=re.IGNORECASE)
+    )
+    if fq_m:
+        return max(1, int(fq_m.group(1))), max(1, int(fq_m.group(2))), True
+
+    # 2. Fasl / Sezon / Mavsum raqamini ajratish
+    s_m = (
+        re.search(r"\b(\d{1,2})\s*[-–.]?\s*(?:fasl|sezon|mavsum|season)\b", combined, flags=re.IGNORECASE)
+        or re.search(r"\b(?:fasl|sezon|mavsum|season)\s*[:=#-]?\s*(\d{1,2})\b", combined, flags=re.IGNORECASE)
+    )
+    if s_m:
+        season = max(1, int(s_m.group(1)))
+        found_marker = True
+
+    # 3. Qism / Seriya / Epizod raqamini ajratish (1..999 gacha!)
+    ep_m = (
+        re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", raw_n, flags=re.IGNORECASE)
+        or re.search(r"\b(?:qism|seriya|epizod|серия|эпизод|ep\.?)\s*[:=#-]?\s*(\d{1,3})\b", raw_n, flags=re.IGNORECASE)
+        or re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", raw_caption, flags=re.IGNORECASE)
+        or re.search(r"\b(?:qism|seriya|epizod|серия|эпизод|ep\.?)\s*[:=#-]?\s*(\d{1,3})\b", raw_caption, flags=re.IGNORECASE)
+        or re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", file_name, flags=re.IGNORECASE)
+    )
+    if ep_m:
+        episode = max(1, int(ep_m.group(1)))
+        if episode >= 10 or any(k in combined.lower() for k in ("serial", "seriya", "серия", "epizod", "эпизод", "fasl", "sezon", "mavsum")):
+            found_marker = True
+
+    return season, episode, found_marker
+
+
+def _clean_serial_base_title(raw_n: str) -> str:
+    b = (raw_n or "").strip()
+    b = re.sub(r"^[\W_]*(?:serial|сериал)[\W_:]*", "", b, flags=re.IGNORECASE).strip()
+    b = re.sub(r"\(\s*(?:serial|сериал|19\d{2}|20\d{2}|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida).*?\)", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b[sS]\d{1,2}\s*[eE]\d{1,3}\b.*$", "", b)
+    b = re.sub(r"\b\d{1,2}\s*[-–.]?\s*(?:fasl|sezon|mavsum|season)\b.*$", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b(?:fasl|sezon|mavsum|season)\s*[:=#-]?\s*\d{1,2}\b.*$", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b\d{1,3}\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b.*$", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b(?:qism|seriya|epizod|серия|эпизод)\s*[:=#-]?\s*\d{1,3}\b.*$", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b(?:serial|сериал)\b", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\s+", " ", b).strip(" -–:|,._()[]«»\"")
+    return b or raw_n.strip()
+
+
 def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str = "") -> dict:
     """
     Kino yoki serial nomidan:
-    - is_serial: 1 (agar serial bo'lsa, masalan Afsungar Merlin, Envel Qahramonlari) yoki 0 (kino)
-    - base_title: Guruhlash uchun asosiy kino/serial nomi (masalan: 'Mumiyo', 'Garri Potter', 'Labirintdagilar')
-    - part_num: Qism tartib raqami (1, 2, 3...)
+    - is_serial: 1 (agar serial bo'lsa) yoki 0 (kino)
+    - base_title: Guruhlash uchun asosiy kino/serial nomi (masalan: 'Mumiyo', 'Garri Potter', 'Afsungar Merlin')
+    - season_num: Fasl raqami (1, 2, 3...)
+    - part_num: Qism tartib raqami (1, 2, 3... 999)
     """
     raw_n = (name or "").strip()
     norm_n = _norm_title(raw_n)
     blob = _norm_title(f"{raw_n} {raw_caption} {file_name}")
+    snum, epnum, has_serial_marker = _extract_season_and_episode(raw_n, raw_caption, file_name)
 
-    # 1. Haqiqiy seriallarni aniqlash
+    # 1. Haqiqiy ma'lum seriallarni aniq aniqlash
     if "afsungar merlin" in norm_n or "afsungar merlin" in blob:
-        ep_m = re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_n, flags=re.IGNORECASE) or re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_caption, flags=re.IGNORECASE)
-        pnum = int(ep_m.group(1)) if ep_m else 1
-        return {"is_serial": 1, "base_title": "Afsungar Merlin", "part_num": pnum}
+        return {"is_serial": 1, "base_title": "Afsungar Merlin", "season_num": snum, "part_num": epnum}
 
     if "envel qahramonlari" in norm_n or "envel qahramonlari" in blob:
-        ep_m = re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_n, flags=re.IGNORECASE) or re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_caption, flags=re.IGNORECASE)
-        pnum = int(ep_m.group(1)) if ep_m else 1
-        return {"is_serial": 1, "base_title": "Envel Qahramonlari", "part_num": pnum}
+        return {"is_serial": 1, "base_title": "Envel Qahramonlari", "season_num": snum, "part_num": epnum}
 
     if "iztopar" in norm_n or "iztopar" in blob:
-        ep_m = (
-            re.search(r"\d+F\d+Q(\d+)Q", file_name) or
-            re.search(r"\d+F(\d+)Q", file_name) or
-            re.search(r"[sS]\d+[eE](\d+)", file_name) or
-            re.search(r"\b(\d{1,3})\s*[-–]?\s*qism", raw_n, flags=re.IGNORECASE) or
-            re.search(r"(?:qism|seriya|epizod)[\s:=-]*(\d+)", raw_caption, flags=re.IGNORECASE) or
-            re.search(r"(\d+)\s*[-–]?\s*qism", raw_caption, flags=re.IGNORECASE)
-        )
-        pnum = int(ep_m.group(1)) if ep_m else 1
-        return {"is_serial": 1, "base_title": "Iztopar Afsonasi", "part_num": pnum}
-
-    if any(k in norm_n or k in blob for k in ["serial", "seriya", "fasl", "sezon"]):
-        ep_m = (
-            re.search(r"\d+F\d+Q(\d+)Q", file_name) or
-            re.search(r"\d+F(\d+)Q", file_name) or
-            re.search(r"[sS]\d+[eE](\d+)", file_name) or
-            re.search(r"\b(\d{1,3})\s*[-–]?\s*(?:qism|seriya|epizod)", raw_n, flags=re.IGNORECASE) or
-            re.search(r"(?:qism|seriya|epizod)[\s:=-]*(\d+)", raw_caption, flags=re.IGNORECASE) or
-            re.search(r"(\d+)\s*[-–]?\s*(?:qism|seriya|epizod)", raw_caption, flags=re.IGNORECASE)
-        )
-        pnum = int(ep_m.group(1)) if ep_m else 1
-        btitle = raw_n
-        btitle = re.sub(r"^[\W_]*serial[\W_:]*", "", btitle, flags=re.IGNORECASE).strip()
-        btitle = re.sub(r"\b\d{1,3}\s*[-–]?\s*(?:qism|seriya|epizod).*$", "", btitle, flags=re.IGNORECASE).strip(" -–:,.")
-        btitle = re.sub(r"^[^\w\s]+", "", btitle).strip()
-        return {"is_serial": 1, "base_title": btitle or raw_n, "part_num": pnum}
+        return {"is_serial": 1, "base_title": "Iztopar Afsonasi", "season_num": snum, "part_num": epnum}
 
     # 2. Ko'p qismli mashhur kinolar franshizalarini yagona base_title ostida va to'g'ri 1, 2, 3... tartibda birlashtirish
     if "predator" in norm_n and "xishnik" in norm_n:
         pm = re.search(r"\b([1-9])\s*[-–]?\s*qism", raw_n, flags=re.IGNORECASE)
-        return {"is_serial": 0, "base_title": "Predator & Xishnik", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Predator & Xishnik", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("yomon yigitlar"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Yomon yigitlar", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Yomon yigitlar", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("mumiya") or norm_n.startswith("mumiyo"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Mumiyo", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Mumiyo", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("sonic"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Sonic", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Sonic", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("krid"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Krid", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Krid", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("padington"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Padington", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Padington", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("garri potter"):
         if "7.1" in raw_n or "7 1" in norm_n:
@@ -1595,39 +1658,39 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
         else:
             pm = re.search(r"\b([1-8])\b", norm_n)
             pnum = int(pm.group(1)) if pm else 1
-        return {"is_serial": 0, "base_title": "Garri Potter", "part_num": pnum}
+        return {"is_serial": 0, "base_title": "Garri Potter", "season_num": 1, "part_num": pnum}
 
     if norm_n.startswith("jumanji"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Jumanji", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Jumanji", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("ilon hamlasi"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Ilon Hamlasi", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Ilon Hamlasi", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("malikaning kundaligi"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Malikaning kundaligi", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Malikaning kundaligi", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("shahzoda va bori"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Shahzoda va Bo'ri", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Shahzoda va Bo'ri", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("beethoven"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Beethoven", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Beethoven", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if "masxaraboz" in norm_n and "penni vays" in norm_n:
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Masxaraboz ONO Penni Vays", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Masxaraboz ONO Penni Vays", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("chaqmoq makvin"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Chaqmoq Makvin", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Chaqmoq Makvin", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("lara kroft"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Lara Kroft: Dahma talonchisi", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Lara Kroft: Dahma talonchisi", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("ip man"):
         if "afsonaning" in norm_n:
@@ -1635,11 +1698,11 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
         else:
             pm = re.search(r"\b([1-9])\b", norm_n)
             pnum = int(pm.group(1)) if pm else 1
-        return {"is_serial": 0, "base_title": "Ip Man", "part_num": pnum}
+        return {"is_serial": 0, "base_title": "Ip Man", "season_num": 1, "part_num": pnum}
 
     if norm_n.startswith("polat alximik"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Po'lat alximik", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Po'lat alximik", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("snayper"):
         if "songgi jang" in norm_n:
@@ -1647,11 +1710,11 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
         else:
             pm = re.search(r"\b([1-9])\b", norm_n)
             pnum = int(pm.group(1)) if pm else 1
-        return {"is_serial": 0, "base_title": "Snayper", "part_num": pnum}
+        return {"is_serial": 0, "base_title": "Snayper", "season_num": 1, "part_num": pnum}
 
     if norm_n.startswith("jodu saltanati"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Jodu saltanati", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Jodu saltanati", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if norm_n.startswith("orgimchak odam"):
         if "uyga qaytish" in norm_n:
@@ -1664,30 +1727,46 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
             pnum = 4
         else:
             pnum = 1
-        return {"is_serial": 0, "base_title": "O'rgimchak odam", "part_num": pnum}
+        return {"is_serial": 0, "base_title": "O'rgimchak odam", "season_num": 1, "part_num": pnum}
 
     if norm_n.startswith("labirintdagilar"):
         pm = re.search(r"\b([1-9])\b", norm_n)
-        return {"is_serial": 0, "base_title": "Labirintdagilar", "part_num": int(pm.group(1)) if pm else 1}
+        return {"is_serial": 0, "base_title": "Labirintdagilar", "season_num": 1, "part_num": int(pm.group(1)) if pm else 1}
 
     if ("supermen" in norm_n or "supper men" in norm_n) and "polat odam" in norm_n:
-        return {"is_serial": 0, "base_title": "Supermen: Po'lat odam", "part_num": 1}
+        return {"is_serial": 0, "base_title": "Supermen: Po'lat odam", "season_num": 1, "part_num": 1}
 
     if norm_n.startswith("sirli sayohat"):
-        return {"is_serial": 0, "base_title": "Sirli sayohat 2: Sirli orol", "part_num": 1}
+        return {"is_serial": 0, "base_title": "Sirli sayohat 2: Sirli orol", "season_num": 1, "part_num": 1}
 
     if ("uch bahodir" in norm_n or "uch baxodir" in norm_n) and ("yer kindigi" in norm_n or "yerni markazida" in norm_n):
-        return {"is_serial": 0, "base_title": "Uch bahodir va Yer kindigi", "part_num": 1}
+        return {"is_serial": 0, "base_title": "Uch bahodir va Yer kindigi", "season_num": 1, "part_num": 1}
 
     if ("uch bahodir" in norm_n or "uch baxodir" in norm_n) and ("ot taxt sohibi" in norm_n or "katta poygalar" in norm_n):
-        return {"is_serial": 0, "base_title": "Uch bahodir va Katta poygalar", "part_num": 1}
+        return {"is_serial": 0, "base_title": "Uch bahodir va Katta poygalar", "season_num": 1, "part_num": 1}
 
-    # Umumiy X-qism yozilgan kinolar
-    gen_m = re.search(r"^(.*?)\s+(\d)\s*[-–]?\s*qism$", raw_n, flags=re.IGNORECASE)
+    # 3. Istalgan YANGI serialni avtomatik tanib olish (fasl/sezon/serial/seriya/S01E01/10+ qism)
+    if has_serial_marker or any(k in norm_n or k in blob for k in ["serial", "сериал", "seriya", "серия", "fasl", "sezon", "mavsum", "epizod", "эпизод"]):
+        btitle = _clean_serial_base_title(raw_n)
+        return {"is_serial": 1, "base_title": btitle, "season_num": snum, "part_num": epnum}
+
+    # 4. Umumiy X-qism yozilgan kinolar yoki yangi seriallar (1..999 gacha!)
+    gen_m = re.search(r"^(.*?)\s+(\d{1,3})\s*[-–.]?\s*(?:qism|part)\b", raw_n, flags=re.IGNORECASE)
     if gen_m and len(gen_m.group(1).strip()) >= 3:
-        return {"is_serial": 0, "base_title": gen_m.group(1).strip(" -–:,"), "part_num": int(gen_m.group(2))}
+        pnum = int(gen_m.group(2))
+        btitle = _clean_serial_base_title(gen_m.group(1))
+        is_ser = 1 if pnum >= 6 else 0
+        return {"is_serial": is_ser, "base_title": btitle, "season_num": snum, "part_num": pnum}
 
-    return {"is_serial": 0, "base_title": raw_n, "part_num": 1}
+    return {"is_serial": 0, "base_title": raw_n, "season_num": 1, "part_num": 1}
+
+
+def _year_matches(cand_year_str: str, target_year_str: str, tolerance: int = 2) -> bool:
+    if not target_year_str or not re.match(r"^(19\d{2}|20\d{2})$", str(target_year_str).strip()[:4]):
+        return True
+    if not cand_year_str or not re.match(r"^(19\d{2}|20\d{2})$", str(cand_year_str).strip()[:4]):
+        return True
+    return abs(int(str(cand_year_str)[:4]) - int(str(target_year_str)[:4])) <= tolerance
 
 
 async def _tmdb_search_request(
@@ -1698,9 +1777,13 @@ async def _tmdb_search_request(
     lang: str = "ru-RU",
     api_key: str = "",
     read_token: str = "",
-    require_similarity: bool = False
+    require_similarity: bool = True,
+    target_year: str = ""
 ) -> str:
-    """1-Provayder: TheMovieDB (TMDB API) ga so'rov yuborib poster_path yoki backdrop_path qaytaradi."""
+    """
+    1-Provayder: TheMovieDB (TMDB API) ga so'rov yuborib FAQAT aniq mos keluvchi
+    kino/serialning vertikal HD poster_path ini qaytaradi (hech qachon boshqa kino rasmini olmaydi!).
+    """
     if not query or len(query.strip()) < 2:
         return ""
     url = f"https://api.themoviedb.org/3/{endpoint}"
@@ -1710,22 +1793,30 @@ async def _tmdb_search_request(
         "language": lang,
         "include_adult": "false"
     }
-    if year and re.match(r"^(19\d{2}|20\d{2})$", str(year).strip()):
+    use_y = str(year or "").strip()
+    if use_y and re.match(r"^(19\d{2}|20\d{2})$", use_y):
         if endpoint == "search/movie":
-            params["year"] = str(year).strip()
+            params["year"] = use_y
         elif endpoint == "search/tv":
-            params["first_air_date_year"] = str(year).strip()
+            params["first_air_date_year"] = use_y
 
     headers = {"Accept": "application/json"}
     if read_token:
         headers["Authorization"] = f"Bearer {read_token}"
+
+    check_year = str(target_year or year or "").strip()
 
     try:
         async with session.get(url, params=params, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 results = data.get("results") or []
-                for item in results:
+                for item in results[:8]:
+                    if endpoint == "search/multi" and item.get("media_type") == "person":
+                        continue
+                    rel_yr = (item.get("release_date") or item.get("first_air_date") or "")[:4]
+                    if check_year and not _year_matches(rel_yr, check_year, tolerance=2):
+                        continue
                     if require_similarity:
                         cand_titles = [
                             item.get("title"),
@@ -1733,9 +1824,10 @@ async def _tmdb_search_request(
                             item.get("name"),
                             item.get("original_name")
                         ]
-                        if not any(ct and _titles_similar(query, ct) for ct in cand_titles):
+                        if not any(ct and _titles_similar(query, ct, threshold=0.68) for ct in cand_titles):
                             continue
-                    poster = item.get("poster_path") or item.get("backdrop_path")
+                    # Faqat vertikal HD poster_path ni olamiz (boshqa kadr yoki xato fon emas)
+                    poster = item.get("poster_path")
                     if poster:
                         return f"https://image.tmdb.org/t/p/w780{poster}"
     except Exception as e:
@@ -1785,6 +1877,14 @@ async def _kinopoisk_uz_search_movie(
                         if not isinstance(it, dict):
                             continue
                         it_year = str(it.get("year_production") or it.get("year") or "")[:4]
+                        if year and it_year and not _year_matches(it_year, year, tolerance=2):
+                            continue
+                        cand_titles = [
+                            it.get("name_ru"), it.get("name_eng"),
+                            it.get("name_original"), it.get("name")
+                        ]
+                        if any(cand_titles) and not any(ct and _titles_similar(query, str(ct), threshold=0.68) for ct in cand_titles):
+                            continue
                         if year and it_year and it_year == str(year)[:4]:
                             chosen = it
                             break
@@ -1839,12 +1939,13 @@ async def _omdb_search_movie(
     session: aiohttp.ClientSession,
     query: str,
     year: str = "",
-    is_serial: bool = False
+    is_serial: bool = False,
+    require_similarity: bool = True
 ) -> dict:
     """
     3-Provayder: The OMDb API (https://www.omdbapi.com/?apikey=23b88a7b)
     - Avval aniq nom (?t=...) va yil (?y=...) bilan qidiradi;
-    - Topilmasa ?s=... qidiruv ro'yxatidan mos IMDb ID (imdbID) topib poster va metadatani qaytaradi.
+    - Har bir topilgan kino nomi va yili qat'iy tekshiriladi — boshqa kinoning posteri hech qachon qo'yilmaydi!
     """
     if not query or len(query.strip()) < 2:
         return {}
@@ -1859,10 +1960,15 @@ async def _omdb_search_movie(
     def _parse_omdb_payload(d: dict) -> dict:
         if not isinstance(d, dict) or d.get("Response") != "True":
             return {}
-        poster_raw = (d.get("Poster") or "").strip()
-        poster = poster_raw if (poster_raw != "N/A" and poster_raw.startswith(("http://", "https://"))) else ""
+        cand_title = (d.get("Title") or "").strip()
         yr_m = re.search(r"(19\d{2}|20\d{2})", str(d.get("Year") or ""))
         found_yr = yr_m.group(1) if yr_m else ""
+        if clean_yr and found_yr and not _year_matches(found_yr, clean_yr, tolerance=2):
+            return {}
+        if require_similarity and cand_title and not _titles_similar(query, cand_title, threshold=0.68):
+            return {}
+        poster_raw = (d.get("Poster") or "").strip()
+        poster = poster_raw if (poster_raw != "N/A" and poster_raw.startswith(("http://", "https://"))) else ""
         raw_c = (d.get("Country") or "").strip()
         country = normalize_country(raw_c) if (raw_c and raw_c != "N/A") else ""
         raw_g = (d.get("Genre") or "").strip()
@@ -1895,7 +2001,7 @@ async def _omdb_search_movie(
         except Exception as e:
             logging.debug(f"OMDb (?t=) xatosi ({query}): {e}")
 
-    # 2. Ro'yxat bo'yicha ?s= qidiruvi
+    # 2. Ro'yxat bo'yicha ?s= qidiruvi (qat'iy nom va yil filtri bilan)
     s_attempts = []
     if clean_yr:
         s_attempts.append({"apikey": omdb_key, "s": query.strip(), "y": clean_yr})
@@ -1907,7 +2013,14 @@ async def _omdb_search_movie(
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     search_list = data.get("Search") or [] if isinstance(data, dict) else []
-                    for item in search_list[:4]:
+                    for item in search_list[:5]:
+                        item_title = (item.get("Title") or "").strip()
+                        yr_m = re.search(r"(19\d{2}|20\d{2})", str(item.get("Year") or ""))
+                        item_yr = yr_m.group(1) if yr_m else ""
+                        if clean_yr and item_yr and not _year_matches(item_yr, clean_yr, tolerance=2):
+                            continue
+                        if require_similarity and item_title and not _titles_similar(query, item_title, threshold=0.68):
+                            continue
                         p_raw = (item.get("Poster") or "").strip()
                         imdb_id = (item.get("imdbID") or "").strip()
                         if imdb_id:
@@ -1918,10 +2031,9 @@ async def _omdb_search_movie(
                                     if parsed:
                                         return parsed
                         if p_raw and p_raw != "N/A" and p_raw.startswith(("http://", "https://")):
-                            yr_m = re.search(r"(19\d{2}|20\d{2})", str(item.get("Year") or ""))
                             return {
                                 "poster": p_raw,
-                                "year": yr_m.group(1) if yr_m else "",
+                                "year": item_yr,
                                 "country": "",
                                 "genre": "",
                                 "imdb": "",
@@ -1933,126 +2045,142 @@ async def _omdb_search_movie(
 
 _TMDB_POSTER_CACHE: dict = {}
 
+_LOCAL_SKIP_FOREIGN_POSTER_KEYWORDS = (
+    "konsert", "bravo jamoasi", "million jamoasi", "dizayn jamoasi", "aristokratlar"
+)
+
 async def find_movie_poster_tmdb(name: str, year: str = "", is_serial: bool = False, force: bool = False) -> str:
     """
-    3-BOSQICHLI MULTI-PROVAYDER AVTO-POSTER QIDIRUV TIZIMI:
+    3-BOSQICHLI QAT'IY ANIQLIKDAGI AVTO-POSTER QIDIRUV TIZIMI:
     1-Bosqich: TheMovieDB (TMDB API — image.tmdb.org HD posterlar)
     2-Bosqich: KinopoiskAPI.uz (api.kinopoiskapi.uz/v1/kinopoisk/movie/search)
     3-Bosqich: The OMDb API (omdbapi.com — IMDb rasmiy posterlari)
-    Agar 1-provayderdan rasm/prevyu topilmasa, avtomatik 2 va 3-provayderlardan topib qaytaradi!
+    Har bir natija qat'iy nom o'xshashligi va yil oralig'i bo'yicha tekshiriladi —
+    boshqa kinoning rasmini hech qachon qo'ymaydi!
     """
     if not force and await db.get_setting("tmdb_auto_poster", "1") != "1":
         return ""
     norm_n = _norm_title(name)
+    if not norm_n or any(kw in norm_n for kw in _LOCAL_SKIP_FOREIGN_POSTER_KEYWORDS):
+        return ""
+
     cache_key = f"{norm_n}:{year}:{int(is_serial)}"
     if cache_key in _TMDB_POSTER_CACHE:
         return _TMDB_POSTER_CACHE[cache_key]
 
     api_key = await db.get_setting("tmdb_api_key", config.TMDB_API_KEY)
     read_token = await db.get_setting("tmdb_read_token", config.TMDB_READ_TOKEN)
+    session = await _get_http_session()
 
-    timeout = aiohttp.ClientTimeout(total=12)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        # 1. EXACT_TMDB_SEARCH_MAP orqali 100% aniq kino nomini aniqlash
-        exact_entry = _match_exact_search_entry(norm_n)
-        ex_query, ex_year, ex_is_tv = exact_entry if exact_entry else ("", "", is_serial)
-        use_is_serial = bool(ex_is_tv or is_serial)
+    # 1. EXACT_TMDB_SEARCH_MAP orqali 100% aniq kino nomini aniqlash
+    exact_entry = _match_exact_search_entry(norm_n)
+    ex_query, ex_year, ex_is_tv = exact_entry if exact_entry else ("", "", is_serial)
+    use_is_serial = bool(ex_is_tv or is_serial)
 
-        target_year = str(ex_year or year or "").strip()
-        known = _find_exact_known(name)
-        if known and not target_year:
-            target_year = str(known.get("year", "")).strip()
+    target_year = str(ex_year or year or "").strip()
+    known = _find_exact_known(name)
+    if known and not target_year:
+        target_year = str(known.get("year", "")).strip()
 
-        # ================= 1-PROVAYDER: THEMOVIEDB (TMDB) =================
-        if api_key or read_token:
-            if exact_entry:
-                ex_endpoint = "search/tv" if use_is_serial else "search/movie"
-                for lg in ("ru-RU", "en-US"):
-                    if target_year:
-                        poster = await _tmdb_search_request(
-                            session, ex_endpoint, ex_query, year=target_year, lang=lg, api_key=api_key, read_token=read_token
-                        )
-                        if poster:
-                            _TMDB_POSTER_CACHE[cache_key] = poster
-                            return poster
+    # ================= 1-PROVAYDER: THEMOVIEDB (TMDB) =================
+    if api_key or read_token:
+        if exact_entry:
+            ex_endpoint = "search/tv" if use_is_serial else "search/movie"
+            for lg in ("ru-RU", "en-US"):
+                if target_year:
                     poster = await _tmdb_search_request(
-                        session, ex_endpoint, ex_query, year="", lang=lg, api_key=api_key, read_token=read_token
+                        session, ex_endpoint, ex_query, year=target_year, lang=lg,
+                        api_key=api_key, read_token=read_token, require_similarity=False, target_year=target_year
                     )
                     if poster:
                         _TMDB_POSTER_CACHE[cache_key] = poster
                         return poster
+                poster = await _tmdb_search_request(
+                    session, ex_endpoint, ex_query, year="", lang=lg,
+                    api_key=api_key, read_token=read_token, require_similarity=True, target_year=target_year
+                )
+                if poster:
+                    _TMDB_POSTER_CACHE[cache_key] = poster
+                    return poster
 
-            endpoint = "search/tv" if use_is_serial else "search/movie"
-            clean_title = re.sub(
-                r"\b(?:\d+\s*[-–]?\s*(?:qism|seriya|epizod|fasl|sezon)|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida|full\s*hd|1080p|720p|4k|premyera|kino|serial)\b",
-                "",
-                name or "",
-                flags=re.IGNORECASE
-            )
-            clean_title = re.sub(r"[:\-_,.—]", " ", clean_title)
-            clean_title = re.sub(r"\s+", " ", clean_title).strip()
-            if not clean_title:
-                clean_title = re.sub(r"[:\-_,.—]", " ", name or "").strip()
+        endpoint = "search/tv" if use_is_serial else "search/movie"
+        clean_title = re.sub(
+            r"\b(?:\d+\s*[-–]?\s*(?:qism|seriya|epizod|fasl|sezon)|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida|full\s*hd|1080p|720p|4k|premyera|kino|serial)\b",
+            "",
+            name or "",
+            flags=re.IGNORECASE
+        )
+        clean_title = re.sub(r"[:\-_,.—]", " ", clean_title)
+        clean_title = re.sub(r"\s+", " ", clean_title).strip()
+        if not clean_title:
+            clean_title = re.sub(r"[:\-_,.—]", " ", name or "").strip()
 
-            ru_title = await _translate_query(session, clean_title, "ru")
-            en_title = await _translate_query(session, clean_title, "en")
+        ru_title = await _translate_query(session, clean_title, "ru")
+        en_title = await _translate_query(session, clean_title, "en")
 
-            candidates = []
-            for q, lg in [(en_title, "en-US"), (ru_title, "ru-RU"), (clean_title, "ru-RU"), (clean_title, "en-US")]:
-                if q and (q, lg) not in candidates:
-                    candidates.append((q, lg))
+        candidates = []
+        for q, lg in [(en_title, "en-US"), (ru_title, "ru-RU"), (clean_title, "ru-RU"), (clean_title, "en-US")]:
+            if q and (q, lg) not in candidates:
+                candidates.append((q, lg))
 
-            if target_year:
-                for q, lg in candidates:
-                    poster = await _tmdb_search_request(
-                        session, endpoint, q, year=target_year, lang=lg, api_key=api_key, read_token=read_token
-                    )
-                    if poster:
-                        _TMDB_POSTER_CACHE[cache_key] = poster
-                        return poster
-
+        # QAT'IY NOM O'XSHASHLIGI + YIL TEKSHIRUVI (require_similarity=True!)
+        if target_year:
             for q, lg in candidates:
                 poster = await _tmdb_search_request(
-                    session, endpoint, q, year="", lang=lg, api_key=api_key, read_token=read_token, require_similarity=True
+                    session, endpoint, q, year=target_year, lang=lg,
+                    api_key=api_key, read_token=read_token, require_similarity=True, target_year=target_year
                 )
                 if poster:
                     _TMDB_POSTER_CACHE[cache_key] = poster
                     return poster
 
-            for q, lg in candidates[:2]:
-                poster = await _tmdb_search_request(
-                    session, "search/multi", q, year="", lang=lg, api_key=api_key, read_token=read_token
-                )
-                if poster:
-                    _TMDB_POSTER_CACHE[cache_key] = poster
-                    return poster
-        else:
-            clean_title = (name or "").strip()
-            ru_title = await _translate_query(session, clean_title, "ru")
-            en_title = await _translate_query(session, clean_title, "en")
+        for q, lg in candidates:
+            poster = await _tmdb_search_request(
+                session, endpoint, q, year="", lang=lg,
+                api_key=api_key, read_token=read_token, require_similarity=True, target_year=target_year
+            )
+            if poster:
+                _TMDB_POSTER_CACHE[cache_key] = poster
+                return poster
 
-        # ================= 2-PROVAYDER: KINOPOISKAPI.UZ =================
-        kp_queries = []
-        for kq in [ex_query, ru_title, en_title, clean_title]:
-            if kq and kq not in kp_queries:
-                kp_queries.append(kq)
+        for q, lg in candidates[:2]:
+            poster = await _tmdb_search_request(
+                session, "search/multi", q, year="", lang=lg,
+                api_key=api_key, read_token=read_token, require_similarity=True, target_year=target_year
+            )
+            if poster:
+                _TMDB_POSTER_CACHE[cache_key] = poster
+                return poster
+    else:
+        clean_title = (name or "").strip()
+        ru_title = await _translate_query(session, clean_title, "ru")
+        en_title = await _translate_query(session, clean_title, "en")
 
-        for kq in kp_queries[:3]:
-            kp_res = await _kinopoisk_uz_search_movie(session, kq, year=target_year)
-            if kp_res.get("poster"):
-                _TMDB_POSTER_CACHE[cache_key] = kp_res["poster"]
-                return kp_res["poster"]
+    # ================= 2-PROVAYDER: KINOPOISKAPI.UZ =================
+    kp_queries = []
+    for kq in [ex_query, ru_title, en_title, clean_title]:
+        if kq and kq not in kp_queries:
+            kp_queries.append(kq)
 
-        # ================= 3-PROVAYDER: THE OMDB API (IMDb) =================
-        omdb_queries = []
-        for oq in [ex_query, en_title, clean_title]:
-            if oq and oq not in omdb_queries:
-                omdb_queries.append(oq)
+    for kq in kp_queries[:3]:
+        kp_res = await _kinopoisk_uz_search_movie(session, kq, year=target_year)
+        if kp_res.get("poster"):
+            _TMDB_POSTER_CACHE[cache_key] = kp_res["poster"]
+            return kp_res["poster"]
 
-        for oq in omdb_queries[:3]:
-            omdb_res = await _omdb_search_movie(session, oq, year=target_year, is_serial=use_is_serial)
-            if omdb_res.get("poster"):
-                _TMDB_POSTER_CACHE[cache_key] = omdb_res["poster"]
-                return omdb_res["poster"]
+    # ================= 3-PROVAYDER: THE OMDB API (IMDb) =================
+    omdb_queries = []
+    for oq in [ex_query, en_title, clean_title]:
+        if oq and oq not in omdb_queries:
+            omdb_queries.append(oq)
+
+    for oq in omdb_queries[:3]:
+        omdb_res = await _omdb_search_movie(
+            session, oq, year=target_year, is_serial=use_is_serial,
+            require_similarity=(not bool(exact_entry and oq == ex_query))
+        )
+        if omdb_res.get("poster"):
+            _TMDB_POSTER_CACHE[cache_key] = omdb_res["poster"]
+            return omdb_res["poster"]
 
     return ""
