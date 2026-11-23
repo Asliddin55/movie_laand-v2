@@ -6553,36 +6553,193 @@ async def handle_webapp_data_message(message: Message):
         pass
 
 
+_GENRE_CANON_MAP = {
+    "melodrama":  ("heart",    "Melodrama"),
+    "jangari":    ("flame",    "Jangari"),
+    "boevik":     ("flame",    "Jangari"),
+    "action":     ("flame",    "Jangari"),
+    "sarguzasht": ("compass",  "Sarguzasht"),
+    "drama":      ("masks",    "Drama"),
+    "dramma":     ("masks",    "Drama"),
+    "fantastika": ("rocket",   "Fantastika"),
+    "fantaziya":  ("wand",     "Fantaziya"),
+    "triller":    ("bolt",     "Triller"),
+    "kriminal":   ("shield",   "Kriminal"),
+    "komediya":   ("smile",    "Komediya"),
+    "oilaviy":    ("users",    "Oilaviy"),
+    "multfilm":   ("sparkles", "Multfilm"),
+    "dahshat":    ("ghost",    "Qo'rqinchli"),
+    "qorqinchli": ("ghost",    "Qo'rqinchli"),
+    "detektiv":   ("search",   "Detektiv"),
+    "tarixiy":    ("landmark", "Tarixiy"),
+    "harbiy":     ("sword",    "Harbiy"),
+    "anime":      ("star",     "Anime"),
+    "serial":     ("tv",       "Serial"),
+    "hujjatli":   ("film",     "Hujjatli"),
+    "sport":      ("trophy",   "Sport"),
+    "musiqiy":    ("music",    "Musiqiy"),
+    "sirli":      ("eye",      "Sirli"),
+    "milliy":     ("globe",    "Milliy"),
+    "biografiya": ("book",     "Biografiya"),
+}
+
+
+def _clean_webapp_genre_token(raw_genre: str) -> tuple[str, str]:
+    s = (raw_genre or "").replace("\ufffd", "").replace("\ufe0f", "").replace("\ufe0e", "").replace("\u200d", "")
+    s = re.sub(r"[^A-Za-z\u0400-\u04FF'’ʻ\s\-]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip(" -'’ʻ")
+    if len(s) < 2:
+        return "", ""
+    norm = re.sub(r"['’ʻ‘`ʼ]", "", s.lower())
+    for k, pair in _GENRE_CANON_MAP.items():
+        if k in norm:
+            return pair
+    return "film", s[:1].upper() + s[1:]
+
+
+def _resolve_webapp_photo_url(raw_p: str) -> str:
+    p = (raw_p or "").strip()
+    if not p:
+        return ""
+    if p.startswith(("http://", "https://", "uploads/")):
+        return p
+    from urllib.parse import quote
+    return f"api.php?action=img&fid={quote(p, safe='')}"
+
+
 async def start_dummy_health_server():
-    port_str = os.getenv("PORT")
+    port_str = os.getenv("PORT") or os.getenv("WEBAPP_PORT")
     if not port_str:
         return
     if "gradio" in sys.modules or os.path.basename(sys.argv[0]) == "app.py":
         return
     try:
         from aiohttp import web
+        import hashlib
         port = int(port_str)
         app = web.Application()
-        webapp_html_path = os.path.join(BASE_DIR, "webapp", "index.html")
-        webapp_cat_path = os.path.join(BASE_DIR, "webapp", "catalog.json")
+        webapp_dir = os.path.join(BASE_DIR, "webapp")
+        uploads_dir = os.path.join(BASE_DIR, "uploads", "posters")
+        os.makedirs(uploads_dir, exist_ok=True)
+        webapp_html_path = os.path.join(webapp_dir, "index.html")
+        webapp_cat_path = os.path.join(webapp_dir, "catalog.json")
+
+        async def _build_live_movies_and_genres():
+            raw_movies = await db.get_all_movies(1000)
+            ep_counts = {}
+            try:
+                conn = await db.get_db_conn()
+                try:
+                    async with conn.execute("SELECT movie_code, COUNT(*) FROM episodes GROUP BY movie_code") as cur:
+                        for row in await cur.fetchall():
+                            ep_counts[str(row[0])] = int(row[1])
+                finally:
+                    await conn.close()
+            except Exception:
+                pass
+
+            items = []
+            genre_map = {}
+            serial_cnt = 0
+            for m in raw_movies:
+                code = str(m["code"])
+                is_ser = int(m.get("is_serial", 0) or 0)
+                if is_ser:
+                    serial_cnt += 1
+                photo_url = _resolve_webapp_photo_url(m.get("photo_id") or "")
+                raw_g = str(m.get("genre") or "Jangari")
+                parts = re.split(r"[,•|/]+", raw_g)
+                clean_list = []
+                seen_local = set()
+                for pt in parts:
+                    ic, cname = _clean_webapp_genre_token(pt)
+                    if not cname:
+                        continue
+                    if cname not in clean_list:
+                        clean_list.append(cname)
+                    gk = cname.lower()
+                    if gk in seen_local:
+                        continue
+                    seen_local.add(gk)
+                    if gk not in genre_map:
+                        genre_map[gk] = {"key": gk, "name": cname, "icon": ic, "count": 0, "posters": []}
+                    genre_map[gk]["count"] += 1
+                    if photo_url and len(genre_map[gk]["posters"]) < 4 and photo_url not in genre_map[gk]["posters"]:
+                        genre_map[gk]["posters"].append(photo_url)
+
+                items.append({
+                    "code": code,
+                    "name": str(m.get("name") or ""),
+                    "genre": ", ".join(clean_list) if clean_list else "Jangari",
+                    "year": str(m.get("year") or "2024"),
+                    "country": str(m.get("country") or "AQSH"),
+                    "language": str(m.get("language") or "O'zbek tilida"),
+                    "quality": str(m.get("quality") or "1080p Full HD"),
+                    "imdb": str(m.get("imdb") or "8.4"),
+                    "views": int(m.get("views") or 0),
+                    "photo_id": photo_url,
+                    "caption": str(m.get("caption") or ""),
+                    "is_serial": is_ser,
+                    "episodes_count": max(1, ep_counts.get(code, 1)),
+                })
+
+            genres = sorted(genre_map.values(), key=lambda g: (-g["count"], g["name"]))
+            return items, genres, serial_cnt
 
         async def handle_webapp_index(request):
             if os.path.exists(webapp_html_path):
-                return web.FileResponse(webapp_html_path)
+                return web.FileResponse(webapp_html_path, headers={"Cache-Control": "no-cache, must-revalidate"})
             return web.Response(text="Movie Land Ultra Bot & WebApp is alive 24/7! 🎬", content_type="text/plain")
 
         async def handle_ping(request):
             return web.Response(text="Movie Land Ultra Bot is alive 24/7! 🎬", content_type="text/plain")
 
         async def handle_api_movies(request):
-            items = await export_webapp_catalog_json()
+            items, _, _ = await _build_live_movies_and_genres()
             if not items and os.path.exists(webapp_cat_path):
                 return web.FileResponse(webapp_cat_path)
             return web.json_response({"ok": True, "movies": items})
 
+        async def handle_api_img(request):
+            fid = str(request.query.get("fid") or "").strip()
+            if not fid or len(fid) > 200 or not re.match(r"^[A-Za-z0-9_\-]+$", fid):
+                return web.Response(status=400)
+            cache_file = os.path.join(uploads_dir, f"tg_{hashlib.md5(fid.encode('utf-8')).hexdigest()}.jpg")
+            if os.path.isfile(cache_file) and os.path.getsize(cache_file) > 512:
+                return web.FileResponse(cache_file, headers={"Cache-Control": "public, max-age=2592000"})
+            try:
+                f_info = await bot.get_file(fid)
+                if f_info and f_info.file_path:
+                    await bot.download_file(f_info.file_path, destination=cache_file)
+                    if os.path.isfile(cache_file) and os.path.getsize(cache_file) > 100:
+                        return web.FileResponse(cache_file, headers={"Cache-Control": "public, max-age=2592000"})
+            except Exception:
+                pass
+            return web.Response(status=404)
+
+        async def handle_api_episodes(request):
+            code = str(request.query.get("code") or "").strip()
+            if not code:
+                return web.json_response({"ok": False, "episodes": []}, status=400)
+            eps = await db.get_episodes(code)
+            return web.json_response({"ok": True, "episodes": [{"episode_num": e["episode_num"], "title": e.get("title", "")} for e in eps]})
+
         async def handle_api_bootstrap(request):
-            items = await export_webapp_catalog_json()
-            trailers = await db.get_webapp_trailers()
+            items, genres, serial_cnt = await _build_live_movies_and_genres()
+            raw_trailers = await db.get_webapp_trailers()
+            trailers = []
+            for tr in raw_trailers:
+                badge = str(tr.get("badge") or "Tez kunda").strip()
+                yr = str(tr.get("year") or "").strip()
+                trailers.append({
+                    "id": tr.get("id", 0),
+                    "title": str(tr.get("title") or ""),
+                    "poster_url": _resolve_webapp_photo_url(tr.get("poster_url") or ""),
+                    "video_url": str(tr.get("video_url") or ""),
+                    "year": yr,
+                    "badge": badge,
+                    "release_note": f"{badge} • {yr}" if yr else badge,
+                })
             cfg_out = {
                 "webapp_enabled": await db.get_setting("webapp_enabled", "1"),
                 "webapp_title": await db.get_setting("webapp_title", "Movie Land"),
@@ -6594,10 +6751,21 @@ async def start_dummy_health_server():
                 "ref_reward_amount": int(await db.get_setting("ref_reward_amount", config.DEFAULT_REF_REWARD) or config.DEFAULT_REF_REWARD),
                 "daily_reward_amount": int(await db.get_setting("daily_reward_amount", config.DEFAULT_DAILY_REWARD) or config.DEFAULT_DAILY_REWARD),
                 "bot_username": BOT_USERNAME or "movieeland_bot",
-                "group_url": config.COMMUNITY_GROUP_URL,
-                "channel_url": "https://t.me/movieee_land",
+                "group_url": getattr(config, "MAIN_TOPIC_GROUP_LINK", "https://t.me/movieeland_group"),
+                "channel_url": getattr(config, "DEFAULT_POST_CHANNEL_LINK", "https://t.me/movieee_land"),
             }
-            return web.json_response({"ok": True, "config": cfg_out, "movies": items, "trailers": trailers})
+            return web.json_response({
+                "ok": True,
+                "config": cfg_out,
+                "stats": {
+                    "total_movies": len(items),
+                    "total_serials": serial_cnt,
+                    "total_genres": len(genres),
+                },
+                "movies": items,
+                "genres": genres,
+                "trailers": trailers,
+            }, headers={"Cache-Control": "no-store"})
 
         async def handle_api_auth(request):
             try:
@@ -6616,6 +6784,7 @@ async def start_dummy_health_server():
                         "id": uid,
                         "full_name": db_u.get("full_name") or tg_u.get("first_name", "User"),
                         "username": db_u.get("username") or tg_u.get("username", ""),
+                        "photo_url": tg_u.get("photo_url", ""),
                         "joined_at": db_u.get("joined_at", ""),
                         "ref_count": int(db_u.get("ref_count", 0) or 0),
                         "role": db_u.get("role", "user"),
@@ -6661,6 +6830,18 @@ async def start_dummy_health_server():
                 if not res.get("ok"):
                     return web.json_response({"ok": False, "error": "insufficient_balance", "needed": res.get("needed", price), "price": price}, status=400)
                 asyncio.create_task(apply_vip_tag_across_ecosystem(bot, uid))
+                try:
+                    await bot.send_message(
+                        uid,
+                        f"🎉 <b>TABRIKLAYMIZ! WEBAPP ORQALI PREMIUM (VIP) FAOLLASHTIRILDI!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"💎 <b>Paket:</b> {days} kunlik VIP ({price:,} so'm)\n"
+                        f"📅 <b>Amal qiladi:</b> <code>{str(res.get('premium_until', ''))[:10]}</code> gacha\n"
+                        f"💰 <b>Qolgan balans:</b> {int(res.get('new_balance', 0)):,} so'm",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
                 return web.json_response({
                     "ok": True,
                     "days": days,
@@ -6683,7 +6864,21 @@ async def start_dummy_health_server():
                 ext_hist = [(str(h.get("role", "user")), str(h.get("text", ""))) for h in raw_hist if isinstance(h, dict) and h.get("text")] if raw_hist is not None else None
                 movies = await db.get_all_movies(1000)
                 res = await ai_service.movie_land_ai_chat(q, movies, lang=lang, user_id=uid, external_history=ext_hist)
-                return web.json_response({"ok": True, "reply": res["reply"], "movies": res["movies"], "model": res.get("model", "")})
+                # Strip HTML tags & redundant prefix for clean WebApp chat bubble
+                clean_reply = re.sub(r"<[^>]+>", "", res.get("reply", "")).strip()
+                clean_reply = re.sub(r"^🤖?\s*Movie Land AI(?:\s*\([^)]+\))?\s*:\s*", "", clean_reply).strip()
+                out_movies = []
+                for rm in res.get("movies", []):
+                    out_movies.append({
+                        "code": str(rm.get("code", "")),
+                        "name": str(rm.get("name", "")),
+                        "year": str(rm.get("year", "")),
+                        "imdb": str(rm.get("imdb", "8.4")),
+                        "genre": str(rm.get("genre", "")),
+                        "photo_id": _resolve_webapp_photo_url(rm.get("photo_id") or ""),
+                        "is_serial": int(rm.get("is_serial", 0) or 0),
+                    })
+                return web.json_response({"ok": True, "reply": clean_reply, "movies": out_movies, "model": res.get("model", "")})
             except Exception as e:
                 return web.json_response({"ok": False, "error": str(e)}, status=400)
 
@@ -6701,22 +6896,63 @@ async def start_dummy_health_server():
                 pass
             return web.json_response({"ok": False}, status=400)
 
+        async def handle_api_php_compat(request):
+            """100% Apache/PHP api.php mosligi — Cloudflare Tunnel orqali xuddi shu URL lar ishlaydi!"""
+            act = str(request.query.get("action") or "bootstrap").strip()
+            if act == "img":
+                return await handle_api_img(request)
+            if act == "episodes":
+                return await handle_api_episodes(request)
+            if act == "auth":
+                return await handle_api_auth(request)
+            if act == "toggle_fav":
+                return await handle_api_toggle_fav(request)
+            if act == "buy_vip":
+                return await handle_api_buy_vip(request)
+            if act == "ai_chat":
+                return await handle_api_ai_chat(request)
+            return await handle_api_bootstrap(request)
+
         app.router.add_get("/", handle_webapp_index)
+        app.router.add_get("/index.php", handle_webapp_index)
         app.router.add_get("/webapp", handle_webapp_index)
+        app.router.add_get("/api.php", handle_api_php_compat)
+        app.router.add_post("/api.php", handle_api_php_compat)
         app.router.add_get("/catalog.json", handle_api_movies)
         app.router.add_get("/api/movies", handle_api_movies)
         app.router.add_get("/api/bootstrap", handle_api_bootstrap)
+        app.router.add_get("/api/episodes", handle_api_episodes)
+        app.router.add_get("/api/img", handle_api_img)
         app.router.add_post("/api/auth", handle_api_auth)
         app.router.add_post("/api/toggle_fav", handle_api_toggle_fav)
         app.router.add_post("/api/buy_vip", handle_api_buy_vip)
         app.router.add_post("/api/ai_chat", handle_api_ai_chat)
         app.router.add_post("/api/watch", handle_api_watch)
         app.router.add_get("/health", handle_ping)
+        if os.path.isdir(webapp_dir):
+            app.router.add_static("/webapp", webapp_dir)
+        if os.path.isdir(uploads_dir):
+            app.router.add_static("/uploads/posters", uploads_dir)
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        logging.info(f"Movie Land WebApp & HTTP Server listening on port {port}")
+        bind_host = "0.0.0.0" if os.getenv("PORT") else "127.0.0.1"
+        bound_port = None
+        for cand_port in range(port, port + 25):
+            try:
+                site = web.TCPSite(runner, bind_host, cand_port)
+                await site.start()
+                bound_port = cand_port
+                break
+            except OSError:
+                continue
+        if bound_port is None:
+            raise OSError(f"No free port found in range {port}-{port+24}")
+        try:
+            with open(os.path.join(BASE_DIR, ".webapp_port"), "w", encoding="utf-8") as pf:
+                pf.write(str(bound_port))
+        except Exception:
+            pass
+        logging.info(f"Movie Land WebApp & HTTP Server listening on {bind_host}:{bound_port}")
     except Exception as e:
         logging.warning(f"Could not start cloud health server on port {port_str}: {e}")
 
@@ -6726,8 +6962,8 @@ async def main():
     global BOT_USERNAME
     single_instance_guard()
     try:
-        await start_dummy_health_server()
         await db.init_db()
+        await start_dummy_health_server()
         dp.include_router(eco_router)
         dp.include_router(fallback_router)
         me = await bot.get_me()

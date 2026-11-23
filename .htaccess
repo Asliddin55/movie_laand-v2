@@ -13,7 +13,7 @@ Options -Indexes
     </IfModule>
 </FilesMatch>
 
-<FilesMatch "^(\.env|\.git|\.htaccess|Dockerfile|LICENSE|ecosystem\.config\.js|movieland_backup\.json)$">
+<FilesMatch "^(\.env|\.git|\.htaccess|\.cloudflared|\.webapp_port|Dockerfile|LICENSE|ecosystem\.config\.js|movieland_backup\.json)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>

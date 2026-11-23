@@ -81,6 +81,52 @@ function ml_norm_text(string $s): string {
     return trim((string)preg_replace('/\s+/', ' ', $t));
 }
 
+// Helper: Phonetic + Cyrillic/English/Uzbek fuzzy key ('Garry Poter' / 'Gerry Poter' / 'Гарри Поттер' -> 'gari poter')
+function ml_phonetic_key(string $s): string {
+    $cyr = [
+        'а'=>'a','б'=>'b','в'=>'v','г'=>'g','д'=>'d','е'=>'e','ё'=>'yo','ж'=>'j','з'=>'z',
+        'и'=>'i','й'=>'y','к'=>'k','л'=>'l','м'=>'m','н'=>'n','о'=>'o','п'=>'p','р'=>'r',
+        'с'=>'s','т'=>'t','у'=>'u','ф'=>'f','х'=>'x','ц'=>'s','ч'=>'ch','ш'=>'sh','щ'=>'sh',
+        'ъ'=>'','ы'=>'i','ь'=>'','э'=>'e','ю'=>'yu','я'=>'ya','ў'=>'o','қ'=>'q','ғ'=>'g','ҳ'=>'h',
+    ];
+    $t = ml_lower($s);
+    $t = strtr($t, $cyr);
+    $t = str_replace(["ʻ", "‘", "’", "`", "ʼ", "'"], '', $t);
+    $t = (string)preg_replace('/[^a-z0-9\s]+/', ' ', $t);
+    $t = trim((string)preg_replace('/\s+/', ' ', $t));
+
+    $synonyms = [
+        'harry potter' => 'garri potter', 'garry poter' => 'garri potter', 'gerry poter' => 'garri potter',
+        'garry potter' => 'garri potter', 'gerry potter' => 'garri potter', 'geri poter' => 'garri potter',
+        'gari poter' => 'garri potter', 'potter' => 'garri potter', 'poter' => 'garri potter',
+        'spider man' => 'orgimchak odam', 'spiderman' => 'orgimchak odam', 'spaydermen' => 'orgimchak odam',
+        'chelovek pauk' => 'orgimchak odam', 'moon knight' => 'oy ritsari', 'lunniy ritsar' => 'oy ritsari',
+        'legend of the seeker' => 'iztopar afsonasi', 'legenda ob iskatele' => 'iztopar afsonasi',
+        'merlin' => 'afsungar merlin', 'envel' => 'envel qahramonlari', 'creed' => 'krid',
+        'paddington' => 'padington', 'cars' => 'chaqmoq makvin', 'mcqueen' => 'chaqmoq makvin',
+        'flash' => 'flesh', 'gods of egypt' => 'misr afsonalari', 'kingdom of heaven' => 'muqaddas zamin',
+        'noah' => 'nuh', 'kraven' => 'ovchi kreyven', 'john carter' => 'jon karter',
+        'fullmetal alchemist' => 'polat alximik', 'sniper' => 'snayper', 'trap' => 'tuzoq',
+        'bethoven' => 'beethoven', 'betxoven' => 'beethoven', 'tri bogatirya' => 'uch bahodir',
+    ];
+    foreach ($synonyms as $alias => $target) {
+        if (strpos($t, $alias) !== false) {
+            $t = str_replace($alias, $target, $t);
+        }
+    }
+    $t = str_replace(['ph', 'oo', 'ee'], ['f', 'u', 'i'], $t);
+    $t = strtr($t, ['y' => 'i', 'q' => 'k', 'c' => 'k', 'w' => 'v', 'h' => 'x']);
+    $t = (string)preg_replace('/([a-z])\1+/', '$1', $t);
+    return trim((string)preg_replace('/\s+/', ' ', $t));
+}
+
+function ml_sim_ratio(string $a, string $b): float {
+    if ($a === '' || $b === '') return 0.0;
+    if ($a === $b) return 1.0;
+    similar_text($a, $b, $pct);
+    return $pct / 100.0;
+}
+
 // Helper: Send quick Telegram notification after WebApp VIP purchase
 function ml_tg_notify(int $chatId, string $htmlText): void {
     $token = ml_get_bot_token();
@@ -204,47 +250,56 @@ function ml_contains(string $haystack, string $needle): bool {
     return strpos($haystack, $needle) !== false;
 }
 
-// Helper: Clean genre token into [icon, cleanName]
+// Helper: Clean genre token into [svgIconKey, cleanName] — ZERO corrupt UTF-8 or raw emojis!
 function ml_split_genre(string $rawGenre): array {
-    $g = trim($rawGenre);
-    if ($g === '') return ['🎬', 'Boshqa'];
-    // Strip leading emojis / pictographs
-    $clean = trim((string)preg_replace('/^[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}\x{200D}\s]+/u', '', $g));
-    if ($clean === '') $clean = $g;
+    $g = str_replace(["\xEF\xBF\xBD", "\xEF\xB8\x8F", "\xEF\xB8\x8E", "\xE2\x80\x8D"], '', $rawGenre);
+    // Strip everything except Unicode letters, apostrophes, spaces and hyphens
+    $clean = (string)preg_replace('/[^\p{L}\'\’\ʻ\s\-]+/u', ' ', $g);
+    $clean = trim((string)preg_replace('/\s+/u', ' ', $clean));
+    $clean = trim($clean, " -'’ʻ");
+    if ($clean === '' || (function_exists('mb_strlen') ? mb_strlen($clean, 'UTF-8') : strlen($clean)) < 2) {
+        return ['', ''];
+    }
 
-    $iconMap = [
-        'jangari' => '🔥',
-        'sarguzasht' => '🧭',
-        'drama' => '🎭',
-        'fantastika' => '🚀',
-        'fantaziya' => '🐉',
-        'triller' => '🔪',
-        'kriminal' => '🕵️',
-        'komediya' => '😂',
-        'oilaviy' => '👨‍👩‍👧',
-        'melodrama' => '💕',
-        'multfilm' => '🧸',
-        'dahshat' => '👻',
-        'qorqinchli' => '👻',
-        'detektiv' => '🔍',
-        'tarixiy' => '🏛️',
-        'harbiy' => '⚔️',
-        'anime' => '🎌',
-        'serial' => '📺',
-        'hujjatli' => '📽️',
-        'sport' => '🏆',
-        'musiqiy' => '🎵',
-        'sirli' => '🔮',
+    $canonMap = [
+        'melodrama'  => ['heart',    'Melodrama'],
+        'jangari'    => ['flame',    'Jangari'],
+        'boevik'     => ['flame',    'Jangari'],
+        'action'     => ['flame',    'Jangari'],
+        'sarguzasht' => ['compass',  'Sarguzasht'],
+        'drama'      => ['masks',    'Drama'],
+        'dramma'     => ['masks',    'Drama'],
+        'fantastika' => ['rocket',   'Fantastika'],
+        'fantaziya'  => ['wand',     'Fantaziya'],
+        'triller'    => ['bolt',     'Triller'],
+        'kriminal'   => ['shield',   'Kriminal'],
+        'komediya'   => ['smile',    'Komediya'],
+        'oilaviy'    => ['users',    'Oilaviy'],
+        'multfilm'   => ['sparkles', 'Multfilm'],
+        'dahshat'    => ['ghost',    "Qo'rqinchli"],
+        'qorqinchli' => ['ghost',    "Qo'rqinchli"],
+        'detektiv'   => ['search',   'Detektiv'],
+        'tarixiy'    => ['landmark', 'Tarixiy'],
+        'harbiy'     => ['sword',    'Harbiy'],
+        'anime'      => ['star',     'Anime'],
+        'serial'     => ['tv',       'Serial'],
+        'hujjatli'   => ['film',     'Hujjatli'],
+        'sport'      => ['trophy',   'Sport'],
+        'musiqiy'    => ['music',    'Musiqiy'],
+        'sirli'      => ['eye',      'Sirli'],
+        'milliy'     => ['globe',    'Milliy'],
+        'biografiya' => ['book',     'Biografiya'],
     ];
-    $low = ml_lower($clean);
-    $icon = '🎬';
-    foreach ($iconMap as $k => $ic) {
-        if (ml_contains($low, $k)) {
-            $icon = $ic;
-            break;
+
+    $norm = str_replace(["'", "’", "ʻ", "‘", "`", "ʼ"], '', ml_lower($clean));
+    foreach ($canonMap as $k => $pair) {
+        if (ml_contains($norm, $k)) {
+            return $pair;
         }
     }
-    return [$icon, $clean];
+    // Capitalize first letter cleanly
+    $first = function_exists('mb_strtoupper') ? mb_strtoupper(mb_substr($clean, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($clean, 1, null, 'UTF-8') : ucfirst($clean);
+    return ['film', $first];
 }
 
 // ==================== ACTION: IMG PROXY (Telegram file_id -> cached JPEG) ====================
@@ -628,11 +683,13 @@ if ($action === 'ai_chat') {
         'tarixiy' => ['tarixiy', 'qadimiy', 'qirol', 'ritsar', 'imperiya', 'jangchi'],
         'anime' => ['anime', 'yapon'],
     ];
-    $stop = ['menga','uchun','kino','kinolar','film','topib','ber','bering','tavsiya','qil','zor','yaxshi','eng','bir','bitta','qaysi','nima','bor','haqida','bilan','yoki','korish','kerak','qidir'];
+    $stop = ['menga','uchun','kino','kinolar','kinosi','kinosini','film','filmlar','filmi','filmini','topib','ber','bering','tavsiya','qil','qiling','zor','yaxshi','eng','bir','bitta','qaysi','nima','bor','bormi','haqida','bilan','va','yoki','shu','osha','korish','istayman','xohlayman','kerak','qidir','qidiryapman','salom','assalomu','alaykum','iltimos','iltmos','tashla','tashlab','yubor','yuboring','och','ochib','kod','kodi'];
     $wantsSerial = false;
     foreach (['serial', 'qismli', 'fasl', 'sezon', 'epizod'] as $sk) { if (ml_contains($qNorm, $sk)) { $wantsSerial = true; break; } }
-    $wantsTop = false;
-    foreach (['top', 'mashhur', 'eng zor', 'eng yaxshi', 'reyting', 'imdb'] as $tk) { if (ml_contains($qNorm, $tk)) { $wantsTop = true; break; } }
+    $wantsTop = (bool)preg_match('/\btop\b/u', $qNorm);
+    if (!$wantsTop) {
+        foreach (['mashhur', 'eng zor', 'eng yaxshi', 'reyting', 'imdb'] as $tk) { if (ml_contains($qNorm, $tk)) { $wantsTop = true; break; } }
+    }
     $wantsNew = false;
     foreach (['yangi', 'premyera', 'oxirgi'] as $nk) { if (ml_contains($qNorm, $nk)) { $wantsNew = true; break; } }
     $targetYear = '';
@@ -642,7 +699,9 @@ if ($action === 'ai_chat') {
     foreach ($intentGenres as $gk => $kws) {
         foreach ($kws as $kw) { if (ml_contains($qNorm, $kw)) { $matchedGenres[] = $gk; break; } }
     }
-    $tokens = array_values(array_filter($words, static function ($w) use ($stop) { return strlen($w) >= 3 && !in_array($w, $stop, true); }));
+    $tokens = array_values(array_filter($words, static function ($w) use ($stop) { return strlen($w) >= 2 && !in_array($w, $stop, true); }));
+    $qPhon = ml_phonetic_key($rawQ);
+    $qCorePhon = !empty($tokens) ? ml_phonetic_key(implode(' ', $tokens)) : $qPhon;
 
     $scored = [];
     $serialNames = [];
@@ -650,38 +709,96 @@ if ($action === 'ai_chat') {
         if (!empty($m['is_serial'])) $serialNames[] = '#' . $m['code'] . ' ' . $m['name'];
         $sc = 0.0;
         $mNameN = ml_norm_text($m['name']);
+        $mNameP = ml_phonetic_key($m['name']);
         $mGenN = ml_norm_text($m['genre']);
         $mCapN = ml_norm_text($m['caption']);
         $mCtrN = ml_norm_text($m['country']);
         $mYr = (string)$m['year'];
         $views = (int)$m['views'];
         $imdb = (float)str_replace(',', '.', (string)$m['imdb']);
-        if (ltrim($qNorm, '#') === (string)$m['code']) $sc += 120.0;
-        if ($qNorm !== '' && strlen($qNorm) >= 3) {
-            if ($qNorm === $mNameN) $sc += 100.0;
-            elseif (ml_contains($mNameN, $qNorm) || (strlen($mNameN) >= 4 && ml_contains($qNorm, $mNameN))) $sc += 65.0;
+
+        // 1. Kod bo'yicha aniq moslik
+        if (ltrim($qNorm, '#') === (string)$m['code']) $sc += 180.0;
+
+        // 2. Fonetik va to'liq nom mosligi ('garry poter' / 'gerry poter' -> 'Garri Potter')
+        if ($qCorePhon !== '' && $mNameP !== '') {
+            if ($qCorePhon === $mNameP || $qPhon === $mNameP) {
+                $sc += 150.0;
+            } elseif (strlen($qCorePhon) >= 4 && (strpos($mNameP, $qCorePhon) !== false || (strlen($mNameP) >= 4 && strpos($qCorePhon, $mNameP) !== false))) {
+                $sc += 110.0;
+            } else {
+                $fullR = ml_sim_ratio($qCorePhon, $mNameP);
+                if ($fullR >= 0.72) $sc += $fullR * 125.0;
+            }
         }
+
+        // 3. Har bir so'z bo'yicha fonetik + fuzzy moslik (so'z chegarasi bilan — 'gari' != 'jodugari'!)
+        $mWordsP = array_values(array_filter(explode(' ', $mNameP), static function ($w) { return strlen($w) >= 2; }));
+        $mWordsN = array_values(array_filter(explode(' ', $mNameN), static function ($w) { return strlen($w) >= 2; }));
+        $wordHits = 0;
         foreach ($tokens as $tok) {
-            if (ml_contains($mNameN, $tok)) $sc += 24.0;
-            if (ml_contains($mCapN, $tok)) $sc += 10.0;
-            if (ml_contains($mGenN, $tok)) $sc += 14.0;
-            if (ml_contains($mCtrN, $tok)) $sc += 12.0;
+            $tokP = ml_phonetic_key($tok);
+            $wExact = in_array($tok, $mWordsN, true) || ($tokP !== '' && in_array($tokP, $mWordsP, true));
+            $wPref = false;
+            if (!$wExact && strlen($tokP) >= 4) {
+                foreach ($mWordsP as $mw) {
+                    if (strlen($mw) >= 4 && (strpos($mw, $tokP) === 0 || strpos($tokP, $mw) === 0)) { $wPref = true; break; }
+                }
+            }
+            if ($wExact) {
+                $sc += 46.0;
+                $wordHits++;
+            } elseif ($wPref) {
+                $sc += 36.0;
+                $wordHits++;
+            } elseif ($tokP !== '' && !empty($mWordsP)) {
+                $bestW = 0.0;
+                foreach ($mWordsP as $mw) {
+                    $r = ml_sim_ratio($tokP, $mw);
+                    if ($r > $bestW) $bestW = $r;
+                }
+                if ($bestW >= 0.75) {
+                    $sc += $bestW * 46.0;
+                    $wordHits++;
+                }
+            }
+            if (strlen($tok) >= 4 && ml_contains($mCapN, $tok)) $sc += 10.0;
+            if (strlen($tok) >= 4 && ml_contains($mGenN, $tok)) $sc += 14.0;
+            if (strlen($tok) >= 4 && ml_contains($mCtrN, $tok)) $sc += 12.0;
         }
-        foreach ($matchedGenres as $gk) { if (ml_contains($mGenN, $gk)) $sc += 28.0; }
+        if (count($tokens) >= 2 && $wordHits >= count($tokens)) {
+            $sc += 45.0;
+        }
+
+        foreach ($matchedGenres as $gk) { if (ml_contains($mGenN, $gk)) $sc += 30.0; }
         if ($wantsSerial) $sc += !empty($m['is_serial']) ? 36.0 : -15.0;
         if ($targetYear !== '') {
-            if ($mYr === $targetYear) $sc += 30.0;
+            if ($mYr === $targetYear) $sc += 32.0;
             elseif (ctype_digit($mYr) && abs((int)$mYr - (int)$targetYear) <= 1) $sc += 12.0;
         }
-        if ($wantsTop) $sc += min($views / 80.0, 20.0) + ($imdb * 2.5);
-        if ($wantsNew && ctype_digit($mYr) && (int)$mYr >= 2023) $sc += 20.0;
-        $sc += min($views / 500.0, 4.0) + ($imdb * 0.4);
+        if ($wantsTop) $sc += min($views / 80.0, 22.0) + ($imdb * 2.5);
+        if ($wantsNew && ctype_digit($mYr) && (int)$mYr >= 2023) $sc += 22.0;
+
+        // Kichik tie-breaker (hech qachon tasodifiy Beethoven ni yuqoriga chiqarmaydi!)
+        $sc += min($views / 3000.0, 0.8) + ($imdb * 0.08);
         $scored[] = ['score' => $sc, 'movie' => $m];
     }
     usort($scored, static function ($a, $b) { return $b['score'] <=> $a['score']; });
+
+    $isBroadBrowse = (!empty($matchedGenres) || $wantsSerial || $wantsTop || $wantsNew || $intent !== 'movie');
     $picked = [];
-    foreach (array_slice($scored, 0, 10) as $row) {
-        if ($row['score'] >= 14.0 || count($picked) < 5) $picked[] = $row['movie'];
+    if (!empty($scored) && $scored[0]['score'] >= 90.0 && !$isBroadBrowse) {
+        $topS = $scored[0]['score'];
+        foreach (array_slice($scored, 0, 3) as $row) {
+            if ($row['score'] >= $topS * 0.55) $picked[] = $row['movie'];
+        }
+    } else {
+        foreach (array_slice($scored, 0, 6) as $row) {
+            if ($row['score'] >= 24.0) $picked[] = $row['movie'];
+        }
+        if (empty($picked) && $isBroadBrowse) {
+            foreach (array_slice($scored, 0, 6) as $row) $picked[] = $row['movie'];
+        }
     }
 
     $vip7 = (int)$settingsMap['vip_7_price'];
@@ -814,7 +931,19 @@ if ($action === 'ai_chat') {
         ml_json(['ok' => true, 'reply' => $rep, 'movies' => array_slice($allMovies, 0, 6), 'model' => 'builtin-expert']);
     }
 
-    $rep = "«{$rawQ}» so'rovingiz bo'yicha bazamizdan eng mos " . min(6, count($picked)) . " ta kino/serialni saralab berdim. Pastdagi kartochkani bosib darhol tomosha qiling yoki yana aniqroq yozing!";
+    if (empty($picked)) {
+        $rep = "Afsuski, «{$rawQ}» bo'yicha bazamizda (" . count($allMovies) . " ta kino ichida) aniq mos kino topilmadi. Botdagi «Buyurtma» bo'limidan nomini yuboring — adminlarimiz uni tez orada yuklab berishadi! Yoki janr/kayfiyatingizni yozing, eng saralarini tanlab beraman.";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [], 'model' => 'builtin-expert']);
+    }
+    if (count($picked) === 1) {
+        $one = $picked[0];
+        $kind = !empty($one['is_serial']) ? 'Serial' : 'Kino';
+        $rep = "Albatta! Siz izlagan «{$one['name']}» ({$one['year']}) bazamizda mavjud:\n"
+            . "{$kind} #{$one['code']} • IMDb {$one['imdb']}/10 • {$one['quality']}.\n"
+            . "Pastdagi kartochkani bosib darhol tomosha qilishingiz mumkin!";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [$one], 'model' => 'builtin-expert']);
+    }
+    $rep = "«{$rawQ}» so'rovingiz bo'yicha bazamizdan eng mos " . min(6, count($picked)) . " ta kino/serialni saralab berdim. Pastdagi kartochkani bosib darhol tomosha qiling!";
     ml_json(['ok' => true, 'reply' => $rep, 'movies' => array_slice($picked, 0, 6), 'model' => 'builtin-expert']);
 }
 
@@ -862,10 +991,20 @@ if ($pdo) {
         $rows = $pdo->query($sql)->fetchAll();
         foreach ($rows as $r) {
             $epCnt = max(1, (int)($r['ep_cnt'] ?? 0));
+            $rawG = (string)($r['genre'] ?: 'Jangari');
+            $gParts = preg_split('/[,•|\/]+/u', $rawG);
+            $gClean = [];
+            if (is_array($gParts)) {
+                foreach ($gParts as $gp) {
+                    [, $cn] = ml_split_genre($gp);
+                    if ($cn !== '' && !in_array($cn, $gClean, true)) $gClean[] = $cn;
+                }
+            }
+            $cleanGenreStr = !empty($gClean) ? implode(', ', $gClean) : 'Jangari';
             $movies[] = [
                 'code' => (string)$r['code'],
                 'name' => (string)$r['name'],
-                'genre' => (string)($r['genre'] ?: '🔥 Jangari'),
+                'genre' => $cleanGenreStr,
                 'year' => (string)($r['year'] ?: '2024'),
                 'country' => (string)($r['country'] ?: 'AQSH'),
                 'language' => (string)($r['language'] ?: "O'zbek tilida"),
@@ -913,13 +1052,15 @@ $genreMap = [];
 $serialCount = 0;
 foreach ($movies as $m) {
     if (!empty($m['is_serial'])) $serialCount++;
-    $parts = preg_split('/[,•|\/]+/', (string)$m['genre']);
+    // CRITICAL: /u UTF-8 modifier prevents splitting multibyte emojis into corrupt U+FFFD bytes!
+    $parts = preg_split('/[,•|\/]+/u', (string)$m['genre']);
     if (!is_array($parts)) $parts = [$m['genre']];
     $seenLocal = [];
     foreach ($parts as $rawPart) {
         $rawPart = trim($rawPart);
         if ($rawPart === '') continue;
         [$icon, $cleanName] = ml_split_genre($rawPart);
+        if ($cleanName === '') continue;
         $key = ml_lower($cleanName);
         if (isset($seenLocal[$key])) continue;
         $seenLocal[$key] = true;
@@ -944,10 +1085,10 @@ foreach ($movies as $m) {
 // Ensure default rich genre list exists even on a freshly cleaned DB
 if (empty($genreMap)) {
     $defaults = [
-        ['🔥', 'Jangari'], ['🧭', 'Sarguzasht'], ['🎭', 'Drama'],
-        ['🚀', 'Fantastika'], ['🐉', 'Fantaziya'], ['🔪', 'Triller'],
-        ['🕵️', 'Kriminal'], ['😂', 'Komediya'], ['👨‍👩‍👧', 'Oilaviy'],
-        ['💕', 'Melodrama'], ['🧸', 'Multfilm'], ['👻', 'Dahshat'],
+        ['flame', 'Jangari'], ['compass', 'Sarguzasht'], ['masks', 'Drama'],
+        ['rocket', 'Fantastika'], ['wand', 'Fantaziya'], ['bolt', 'Triller'],
+        ['shield', 'Kriminal'], ['smile', 'Komediya'], ['users', 'Oilaviy'],
+        ['heart', 'Melodrama'], ['sparkles', 'Multfilm'], ['ghost', "Qo'rqinchli"],
     ];
     foreach ($defaults as [$ic, $nm]) {
         $k = ml_lower($nm);

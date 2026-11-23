@@ -488,8 +488,40 @@ async def run_audit():
     p111 = bool(ai_ans.get("reply")) and len(ai_ans.get("movies") or []) >= 1 and has_ai_btn
     record(111, "Movie Land AI bo'limi va jonli kino tavsiya dvigateli", p111, f"Topildi: {[m['name'] for m in (ai_ans.get('movies') or [])[:3]]}")
 
+    # 112: Fonetik + Fuzzy qidiruv ('garry poter' / 'gerry poter' -> Garri Potter, Beethoven EMAS!)
+    gp_ai = await ai_service.movie_land_ai_chat("menga garry poter kinosini topib ber", all_movs_ai, lang="uz")
+    gp_ai2 = await ai_service.movie_land_ai_chat("gerry poter", all_movs_ai, lang="uz")
+    gp_db = await db.search_movies_by_name("garry poter", limit=5)
+    gp_names = [m["name"] for m in (gp_ai.get("movies") or [])]
+    gp_names2 = [m["name"] for m in (gp_ai2.get("movies") or [])]
+    gp_db_names = [m["name"] for m in gp_db]
+    p112 = (
+        any("garri potter" in n.lower() for n in gp_names)
+        and all("beethoven" not in n.lower() for n in gp_names)
+        and any("garri potter" in n.lower() for n in gp_names2)
+        and any("garri potter" in n.lower() for n in gp_db_names)
+    )
+    record(112, "Fonetik qidiruv: 'garry poter' / 'gerry poter' -> Garri Potter (Beethoven emas!)", p112, f"AI={gp_names}, DB={gp_db_names}")
+
+    # 113: Bazada yo'q nom so'ralganda tasodifiy Beethoven tashlamasligi
+    miss_ai = await ai_service.movie_land_ai_chat("Avatar 999 nomalum kino", all_movs_ai, lang="uz")
+    p113 = (len(miss_ai.get("movies") or []) == 0) and ("buyurtma" in (miss_ai.get("reply") or "").lower())
+    record(113, "Bazada yo'q kinoda soxta natija (Beethoven) chiqarmay Buyurtma taklif qilishi", p113, f"movies={len(miss_ai.get('movies') or [])}")
+
+    # 114: Glass Block WebApp (styles.css, app.js, index.html) & toza UTF-8 janr parser
+    ic_t, g_t = main._clean_webapp_genre_token("⚔️ Tarixiy")
+    ic_m, g_m = main._clean_webapp_genre_token("❤️ Melodrama")
+    p114 = (
+        os.path.exists("webapp/styles.css")
+        and os.path.exists("webapp/app.js")
+        and os.path.exists("webapp/index.html")
+        and g_t == "Tarixiy" and "\ufffd" not in g_t
+        and g_m == "Melodrama" and "\ufffd" not in g_m
+    )
+    record(114, "Glass Block WebApp fayllari va toza UTF-8 janr parser (0 ta buzilgan belgi)", p114, f"{g_t} ({ic_t}), {g_m} ({ic_m})")
+
     p100 = all(r[2] for r in audit_results)
-    record(100, "111-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
+    record(100, "114-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
 
     # Audit davomida yaratilgan vaqtinchalik test yozuvlarini tozalash (bazada iz qolmasligi uchun)
     async with aiosqlite.connect(db.DB_NAME, timeout=30.0) as c:

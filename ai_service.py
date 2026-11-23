@@ -2339,10 +2339,196 @@ _AI_INTENT_GENRES = {
     "anime": ["anime", "yapon", "аниме", "японский"],
 }
 
+_CYR_TO_LAT = str.maketrans({
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+    "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh",
+    "ъ": "", "ы": "i", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    "ў": "o", "қ": "q", "ғ": "g", "ҳ": "h",
+})
+
+_SEARCH_SYNONYM_MAP = {
+    "harry potter": "garri potter",
+    "garry potter": "garri potter",
+    "gerry potter": "garri potter",
+    "garry poter": "garri potter",
+    "gerry poter": "garri potter",
+    "spider man": "orgimchak odam",
+    "spiderman": "orgimchak odam",
+    "chelovek pauk": "orgimchak odam",
+    "moon knight": "oy ritsari",
+    "lunniy ritsar": "oy ritsari",
+    "merlin": "afsungar merlin",
+    "enchanted": "muhabbat sehri",
+    "zacharovannaya": "muhabbat sehri",
+    "batman": "betmen",
+    "avengers": "qasoskorlar",
+    "mstiteli": "qasoskorlar",
+    "pirates of the caribbean": "karib dengizi qaroqchilari",
+    "pirati karibskogo": "karib dengizi qaroqchilari",
+    "mummy": "mumiyo",
+    "mumiya": "mumiyo",
+    "fast and furious": "forsaj",
+    "wolverine": "garoyib odamlar",
+    "x men": "garoyib odamlar",
+    "superman": "supermen",
+    "man of steel": "supermen polat odam",
+    "underdog": "super it",
+    "legend of the seeker": "iztopar afsonasi",
+    "geroi envella": "envel qahramonlari",
+    "envel": "envel qahramonlari",
+    "creed": "krid",
+    "paddington": "padington",
+    "cars": "chaqmoq makvin",
+    "mcqueen": "chaqmoq makvin",
+    "wicked": "jodugar",
+    "flash": "flesh",
+    "gods of egypt": "misr afsonalari",
+    "kingdom of heaven": "muqaddas zamin",
+    "noah": "nuh",
+    "kraven": "ovchi kreyven",
+    "john carter": "jon karter",
+    "fullmetal alchemist": "polat alximik",
+    "stalnoy alximik": "polat alximik",
+    "sniper": "snayper",
+    "trap": "tuzoq",
+    "bethoven": "beethoven",
+    "betxoven": "beethoven",
+    "tri bogatirya": "uch bahodir",
+}
+
+
+def phonetic_key(text: str) -> str:
+    """
+    O'zbek / Ingliz / Rus imlo farqlarini bir xil fonetik ildizga keltiradi:
+    'Garry Poter', 'Gerry Poter', 'Harry Potter', 'Garri Potter', 'Гарри Поттер' -> 'gari poter'!
+    """
+    t = (text or "").lower().translate(_CYR_TO_LAT)
+    t = re.sub(r"[ʻ‘’`ʼ']", "", t)
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    # Mashhur ingliz/rus nomlarini bazadagi o'zbekcha nomga xaritalash
+    for alias, uz_target in _SEARCH_SYNONYM_MAP.items():
+        if alias in t:
+            t = t.replace(alias, uz_target)
+    t = t.replace("ph", "f").replace("oo", "u").replace("ee", "i")
+    t = t.replace("y", "i").replace("q", "k").replace("c", "k").replace("w", "v").replace("h", "x")
+    # Qo'sh harflarni bittaga tushirish (tt->t, rr->r, ll->l, ss->s)
+    t = re.sub(r"([a-z])\1+", r"\1", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def fuzzy_movie_match_score(raw_q: str, m: dict, tokens: list, matched_genres: list, wants_serial: bool, wants_movie_only: bool, target_year: str, wants_top: bool, wants_new: bool, wants_random: bool) -> float:
+    """
+    Kuchli fonetik + fuzzy (SequenceMatcher) + syujet/janr skorer.
+    'garry poter' / 'gerry poter' / 'harry potter' -> '#43 Garri Potter' ni 100% birinchi o'rinda topadi!
+    """
+    import difflib
+    score = 0.0
+    q_norm = _norm_title(raw_q)
+    q_phon = phonetic_key(raw_q)
+    # Qidiruv so'zidan stop-so'zlarni olib toza nom nomzodini yasaymiz
+    q_core_tokens = [w for w in q_norm.split() if len(w) >= 2 and w not in _AI_STOPWORDS]
+    q_core_phon = phonetic_key(" ".join(q_core_tokens)) if q_core_tokens else q_phon
+
+    m_name = str(m.get("name") or "")
+    m_name_norm = _norm_title(m_name)
+    m_name_phon = phonetic_key(m_name)
+    m_genre_low = str(m.get("genre") or "").lower()
+    m_cap_norm = _norm_title(str(m.get("caption") or ""))
+    m_country_low = str(m.get("country") or "").lower()
+    m_year = str(m.get("year") or "")
+    m_code = str(m.get("code") or "")
+    is_ser = bool(m.get("is_serial"))
+    views = int(m.get("views") or 0)
+    try:
+        imdb_f = float(str(m.get("imdb") or "8.0").replace(",", "."))
+    except Exception:
+        imdb_f = 8.0
+
+    # 1. Kod bo'yicha aniq moslik
+    if q_norm.lstrip("#") == m_code:
+        score += 180.0
+
+    # 2. To'liq va fonetik nom mosligi
+    if q_core_phon and m_name_phon:
+        if q_core_phon == m_name_phon or q_phon == m_name_phon:
+            score += 150.0
+        elif len(q_core_phon) >= 4 and (q_core_phon in m_name_phon or (len(m_name_phon) >= 4 and m_name_phon in q_core_phon)):
+            score += 110.0
+        else:
+            full_ratio = difflib.SequenceMatcher(None, q_core_phon, m_name_phon).ratio()
+            if full_ratio >= 0.72:
+                score += full_ratio * 125.0
+
+    # 3. Har bir so'z bo'yicha aniq + fonetik + fuzzy moslik!
+    m_words_phon = [w for w in m_name_phon.split() if len(w) >= 2]
+    m_words_norm = [w for w in m_name_norm.split() if len(w) >= 2]
+    matched_word_hits = 0
+    for tok in tokens:
+        tok_p = phonetic_key(tok)
+        word_exact = (tok in m_words_norm) or (tok_p and tok_p in m_words_phon)
+        word_prefix = (len(tok_p) >= 4 and any(mw.startswith(tok_p) or tok_p.startswith(mw) for mw in m_words_phon if len(mw) >= 4))
+        if word_exact:
+            score += 46.0
+            matched_word_hits += 1
+        elif word_prefix:
+            score += 36.0
+            matched_word_hits += 1
+        elif tok_p and m_words_phon:
+            best_w = max(difflib.SequenceMatcher(None, tok_p, mw).ratio() for mw in m_words_phon)
+            if best_w >= 0.75:
+                score += best_w * 46.0
+                matched_word_hits += 1
+        if len(tok) >= 4 and tok in m_cap_norm:
+            score += 10.0
+        if len(tok) >= 4 and tok in m_genre_low:
+            score += 14.0
+        if len(tok) >= 4 and tok in m_country_low:
+            score += 12.0
+
+    # Agar 2+ so'zli nomning barcha so'zlari mos kelsa katta bonus!
+    if len(tokens) >= 2 and matched_word_hits >= len(tokens):
+        score += 45.0
+
+    # 4. Janr/kayfiyat mosligi
+    for gk in matched_genres:
+        if gk in m_genre_low or (gk == "qo'rqinchli" and "qorqinchli" in _norm_title(m_genre_low)):
+            score += 30.0
+
+    # 5. Serial / Kino filtri
+    if wants_serial:
+        score += 36.0 if is_ser else -15.0
+    elif wants_movie_only:
+        score += 12.0 if not is_ser else -20.0
+
+    # 6. Yil bo'yicha
+    if target_year:
+        if m_year == target_year:
+            score += 32.0
+        elif m_year.isdigit() and abs(int(m_year) - int(target_year)) <= 1:
+            score += 12.0
+
+    # 7. Top / Yangi / Tasodifiy bonuslari
+    if wants_top:
+        score += min(views / 80.0, 22.0) + (imdb_f * 2.5)
+    if wants_new and m_year.isdigit() and int(m_year) >= 2023:
+        score += 22.0
+    if wants_random:
+        score += random.uniform(5.0, 25.0)
+
+    # Kichik tie-breaker (hech qachon noto'g'ri kinoni yuqoriga chiqarmasligi uchun max 1.5 ball!)
+    score += min(views / 3000.0, 0.8) + (imdb_f * 0.08)
+    return score
+
+
 _AI_STOPWORDS = {
-    "menga", "uchun", "kino", "kinolar", "film", "filmlar", "topib", "ber", "bering", "tavsiya", "qil", "qiling",
-    "zor", "zo'r", "yaxshi", "eng", "bir", "bitta", "qaysi", "nima", "bor", "haqida", "bilan", "va", "yoki",
-    "ko'rish", "korish", "istayman", "xohlayman", "kerak", "qidir", "qidiryapman", "salom", "assalomu", "alaykum",
+    "menga", "uchun", "kino", "kinolar", "kinosi", "kinosini", "film", "filmlar", "filmi", "filmini",
+    "topib", "top", "ber", "bering", "tavsiya", "qil", "qiling", "zor", "zo'r", "yaxshi", "eng",
+    "bir", "bitta", "qaysi", "nima", "bor", "bormi", "haqida", "bilan", "va", "yoki", "shu", "o'sha",
+    "ko'rish", "korish", "istayman", "xohlayman", "kerak", "qidir", "qidiryapman", "salom", "assalomu",
+    "alaykum", "iltimos", "iltmos", "tashla", "tashlab", "yubor", "yuboring", "och", "ochib", "kod", "kodi",
     "посоветуй", "найди", "фильм", "фильмы", "кино", "мне", "для", "про", "лучший", "лучшие", "какой", "есть", "привет",
 }
 
@@ -2591,7 +2777,42 @@ def _smart_builtin_expert_reply(intent: str, raw_q: str, bot_ctx: dict, user_ctx
         )
         return msg, []
 
-    # Kino / Serial tavsiya natijasi
+    # Kino / Serial tavsiya natijasi (100% tabiiy, aniq suhbat — hech qachon aloqasiz Beethoven tashlamaydi!)
+    if not best_movies:
+        q_esc = _html.escape(raw_q[:70])
+        if lang == "ru":
+            msg = (
+                f"🤖 <b>Movie Land AI:</b>\n\n"
+                f"К сожалению, по запросу <i>«{q_esc}»</i> в нашей базе сейчас точного совпадения не нашлось.\n"
+                f"💡 Нажмите <b>«🎬 Заказ»</b> в главном меню и отправьте название — админы добавят этот фильм в кратчайшие сроки!\n"
+                f"Или напишите желаемый жанр / настроение, и я сразу подберу что-то крутое из {bot_ctx['total_movies']} фильмов."
+            )
+        else:
+            msg = (
+                f"🤖 <b>Movie Land AI:</b>\n\n"
+                f"Afsuski, <i>«{q_esc}»</i> bo'yicha bazamizda ({bot_ctx['total_movies']} ta kino ichida) hozircha aniq mos kino topilmadi.\n"
+                f"💡 Bosh menyudagi <b>«🎬 Buyurtma»</b> tugmasi orqali nomini yuboring — adminlarimiz uni tez orada yuklab berishadi!\n"
+                f"Yoki qaysi janr/kayfiyatdagi kino ko'rmoqchiligingizni yozing, eng saralarini darhol tanlab beraman."
+            )
+        return msg, []
+
+    # Agar aniq 1 ta kino/serial kuchli topilgan bo'lsa — u haqida professional, jonli chat uslubida gapirib beramiz!
+    if len(best_movies) == 1:
+        m = best_movies[0]
+        badge = "📺 Serial" if m.get("is_serial") else "🎬 Kino"
+        m_name = _html.escape(str(m.get("name") or ""))
+        m_cap = _html.escape((m.get("caption") or "").strip()[:320])
+        cap_block = f"\n\n📖 <b>Qisqacha syujet:</b>\n<i>{m_cap}</i>" if m_cap else ""
+        msg = (
+            f"🤖 <b>Movie Land AI:</b>\n\n"
+            f"Albatta! Siz so'ragan <b>«{m_name}»</b> bazamizda mavjud:\n\n"
+            f"{badge} <b>#{m['code']} — {m_name}</b> ({m.get('year', '')})\n"
+            f"🎭 <b>Janr:</b> {m.get('genre', '')} • 🌏 {m.get('country', 'AQSH')}\n"
+            f"⭐ <b>IMDb:</b> {m.get('imdb', '8.4')}/10 • 📀 {m.get('quality', '1080p Full HD')}{cap_block}\n\n"
+            f"👇 <i>Pastdagi tugmani bosing — kino kartasi va barcha qismlari darhol ochiladi!</i>"
+        )
+        return msg, [m]
+
     lines = []
     if lang == "ru":
         intro = f"🤖 <b>Movie Land AI</b> подобрал лучшие варианты по запросу <i>«{_html.escape(raw_q[:70])}»</i>:\n"
@@ -2605,7 +2826,7 @@ def _smart_builtin_expert_reply(intent: str, raw_q: str, bot_ctx: dict, user_ctx
             )
         outro = "\n👇 <i>Нажмите на кнопку фильма ниже или напишите «ещё» / уточните жанр!</i>"
     else:
-        intro = f"🤖 <b>Movie Land AI</b> sizning <i>«{_html.escape(raw_q[:70])}»</i> so'rovingiz bo'yicha eng moslarini saraladi:\n"
+        intro = f"🤖 <b>Movie Land AI</b> sizning <i>«{_html.escape(raw_q[:70])}»</i> so'rovingiz bo'yicha eng moslarini topdi:\n"
         for i, m in enumerate(best_movies[:5], 1):
             badge = "📺 Serial" if m.get("is_serial") else "🎬 Kino"
             short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:110]
@@ -2614,7 +2835,7 @@ def _smart_builtin_expert_reply(intent: str, raw_q: str, bot_ctx: dict, user_ctx
                 f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
                 f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
             )
-        outro = "\n👇 <i>Pastdagi tugmadan darhol ochib ko'ring yoki «yana boshqasi» deb yozing!</i>"
+        outro = "\n👇 <i>Pastdagi tugmadan darhol ochib ko'ring yoki yana boshqa savolingizni yozing!</i>"
     return intro + "\n" + "\n\n".join(lines) + "\n" + outro, best_movies[:5]
 
 
@@ -2645,7 +2866,7 @@ async def movie_land_ai_chat(
     # Bazadagi eng mos kinolarni hisoblash
     wants_serial = any(k in q_low for k in ("serial", "сериал", "qismli", "fasl", "sezon", "epizod"))
     wants_movie_only = any(k in q_low for k in ("faqat kino", "bitta kino", "to'liq metraj"))
-    wants_top = any(k in q_low for k in ("top", "mashhur", "eng zo'r", "eng zor", "eng yaxshi", "reyting", "imdb", "лучш", "популяр", "топ"))
+    wants_top = bool(re.search(r"\b(top|топ)\b", q_low)) or any(k in q_low for k in ("mashhur", "eng zo'r", "eng zor", "eng yaxshi", "reyting", "imdb", "лучш", "популяр"))
     wants_new = any(k in q_low for k in ("yangi", "premyera", "oxirgi", "новейш", "новинк", "новый", "новые"))
     wants_random = any(k in q_low for k in ("tasodif", "xohlagan", "farqi yo'q", "farqi yoq", "любой", "случайн")) or wants_more
 
@@ -2657,7 +2878,7 @@ async def movie_land_ai_chat(
         if any(kw in q_low or kw in q_norm for kw in kws):
             matched_genres.append(g_key)
 
-    tokens = [w for w in q_norm.split() if len(w) >= 3 and w not in _AI_STOPWORDS]
+    tokens = [w for w in q_norm.split() if len(w) >= 2 and w not in _AI_STOPWORDS]
     serials_all = [m for m in movies_catalog if m.get("is_serial")]
 
     scored = []
@@ -2665,60 +2886,37 @@ async def movie_land_ai_chat(
         m_code = str(m.get("code") or "")
         if wants_more and m_code in shown_prev:
             continue
-        score = 0.0
-        m_name = str(m.get("name") or "")
-        m_name_norm = _norm_title(m_name)
-        m_genre_low = str(m.get("genre") or "").lower()
-        m_cap_norm = _norm_title(str(m.get("caption") or ""))
-        m_country_low = str(m.get("country") or "").lower()
-        m_year = str(m.get("year") or "")
-        is_ser = bool(m.get("is_serial"))
-        views = int(m.get("views") or 0)
-        try:
-            imdb_f = float(str(m.get("imdb") or "8.0").replace(",", "."))
-        except Exception:
-            imdb_f = 8.0
-
-        if q_norm.lstrip("#") == m_code:
-            score += 120.0
-        if q_norm and len(q_norm) >= 3:
-            if q_norm == m_name_norm:
-                score += 100.0
-            elif q_norm in m_name_norm or (len(m_name_norm) >= 4 and m_name_norm in q_norm):
-                score += 65.0
-        for tok in tokens:
-            if tok in m_name_norm:
-                score += 24.0
-            if tok in m_cap_norm:
-                score += 10.0
-            if tok in m_genre_low:
-                score += 14.0
-            if tok in m_country_low:
-                score += 12.0
-        for gk in matched_genres:
-            if gk in m_genre_low or (gk == "qo'rqinchli" and "qorqinchli" in _norm_title(m_genre_low)):
-                score += 28.0
-        if wants_serial:
-            score += 36.0 if is_ser else -15.0
-        elif wants_movie_only:
-            score += 12.0 if not is_ser else -20.0
-        if target_year:
-            if m_year == target_year:
-                score += 30.0
-            elif m_year.isdigit() and abs(int(m_year) - int(target_year)) <= 1:
-                score += 12.0
-        if wants_top:
-            score += min(views / 80.0, 20.0) + (imdb_f * 2.5)
-        if wants_new and m_year.isdigit() and int(m_year) >= 2023:
-            score += 20.0
-        if wants_random:
-            score += random.uniform(5.0, 25.0)
-        score += min(views / 500.0, 4.0) + (imdb_f * 0.4)
+        score = fuzzy_movie_match_score(
+            raw_q=raw_q,
+            m=m,
+            tokens=tokens,
+            matched_genres=matched_genres,
+            wants_serial=wants_serial,
+            wants_movie_only=wants_movie_only,
+            target_year=target_year,
+            wants_top=wants_top,
+            wants_new=wants_new,
+            wants_random=wants_random,
+        )
         scored.append((score, m))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
     best_candidates = [m for _, m in scored[:12]]
-    top_movies = [m for sc, m in scored[:5] if sc >= 14.0] or best_candidates[:5]
+
+    # Agar aniq 1 ta kino nomiga juda kuchli moslik bo'lsa (masalan 'garry poter' -> Garri Potter, score >= 95),
+    # keraksiz begona kinolarni aralash qilib yubormasdan aynan shu kinoni (va juda yaqinlarini) qaytaramiz!
+    is_broad_browse = bool(matched_genres or wants_serial or wants_top or wants_new or wants_random or intent != "movie")
+    if scored and scored[0][0] >= 90.0 and not is_broad_browse:
+        top_movies = [m for sc, m in scored[:3] if sc >= scored[0][0] * 0.55]
+    else:
+        strong = [m for sc, m in scored[:5] if sc >= 24.0]
+        if strong:
+            top_movies = strong
+        elif is_broad_browse:
+            top_movies = best_candidates[:5]
+        else:
+            # Foydalanuvchi aniq nom so'radi va bazada u yo'q -> hech qachon tasodifiy Beethoven tashlamaymiz!
+            top_movies = []
 
     # 1. Google Gemini 2.5 Flash/Pro (yoki Top-15 AI dan ulangan har qanday faol provayder) bilan jonli professional suhbat!
     llm_reply = ""

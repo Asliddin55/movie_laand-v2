@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Movie Land Ultra Bot - MyXvest / CloudLinux / Linux VPS Avto-O'rnatish va Start
+# Movie Land Ultra Bot - MyXvest / CloudLinux / Linux VPS Avto-O'rnatish, SSL & Start
 # ==============================================================================
 set -e
 cd "$(dirname "$0")"
@@ -57,7 +57,7 @@ echo "📥 Kutubxonalar o'rnatilmoqda..."
 "$PY_BIN" -m pip install --upgrade pip -q
 "$PY_BIN" -m pip install -r requirements.txt -q
 
-# 5. Eski bot jarayonini to'xtatish
+# 5. Eski bot va tunnel jarayonlarini xavfsiz to'xtatish
 if [ -f "bot.pid" ]; then
     OLD_PID=$(cat bot.pid 2>/dev/null || true)
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
@@ -67,18 +67,107 @@ if [ -f "bot.pid" ]; then
     fi
     rm -f bot.pid
 fi
+if [ -f "cloudflared.pid" ]; then
+    CF_OLD=$(cat cloudflared.pid 2>/dev/null || true)
+    if [ -n "$CF_OLD" ] && kill -0 "$CF_OLD" 2>/dev/null; then
+        kill -15 "$CF_OLD" 2>/dev/null || kill -9 "$CF_OLD" 2>/dev/null || true
+    fi
+    rm -f cloudflared.pid
+fi
 pkill -f "main.py" 2>/dev/null || true
+pkill -f "\.cloudflared tunnel" 2>/dev/null || true
+rm -f .webapp_port
 sleep 1
 
-# 6. Botni orqa fonda (24/7) ishga tushirish
+# 6. Botni (ichki WebApp HTTP serveri bilan) orqa fonda ishga tushirish
+export WEBAPP_PORT=8765
 nohup "$PY_BIN" main.py > bot.log 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > bot.pid
-sleep 3
+
+# Lokal WebApp server portini kutish (maks 8 soniya)
+LOCAL_PORT="8765"
+for i in 1 2 3 4 5 6 7 8; do
+    if [ -f ".webapp_port" ]; then
+        LOCAL_PORT=$(cat .webapp_port 2>/dev/null || echo "8765")
+        break
+    fi
+    sleep 1
+done
+
+# 7. Mobil Telegram WebApp uchun ISHONCHLI HTTPS SSL tekshiruvi va Avto-Tunnel!
+SITE_URL="https://6b02fedeb2d06.myxvest1.ru/"
+ACTIVE_WEBAPP_URL="$SITE_URL"
+
+if curl -sfI --max-time 6 "$SITE_URL" >/dev/null 2>&1; then
+    echo "🔒 MyXvest domeni ishonchli SSL sertifikatga ega: $SITE_URL"
+else
+    echo "⚠️ MyXvest SSL hali o'z-o'zidan imzolangan (self-signed) — telefonda oq ekran bo'lmasligi uchun bepul ishonchli Cloudflare HTTPS Tunnel ishga tushirilmoqda..."
+    if [ ! -x "./.cloudflared" ]; then
+        echo "📦 cloudflared yuklab olinmoqda (bir martalik)..."
+        curl -sSL -o ./.cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" || true
+        chmod +x ./.cloudflared 2>/dev/null || true
+    fi
+    if [ -x "./.cloudflared" ]; then
+        rm -f cloudflared.log
+        nohup ./.cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:${LOCAL_PORT}" > cloudflared.log 2>&1 &
+        CF_PID=$!
+        echo "$CF_PID" > cloudflared.pid
+        TUNNEL_URL=""
+        for i in $(seq 1 18); do
+            TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log 2>/dev/null | head -n 1 || true)
+            if [ -n "$TUNNEL_URL" ]; then
+                break
+            fi
+            sleep 1
+        done
+        if [ -n "$TUNNEL_URL" ]; then
+            ACTIVE_WEBAPP_URL="${TUNNEL_URL}/"
+            echo "✅ Ishonchli Yashil-Qulfli HTTPS WebApp tayyor: $ACTIVE_WEBAPP_URL"
+        else
+            echo "⚠️ Cloudflare tunnel URL olinmadi (cloudflared.log ni tekshiring). Standart manzil qoldirildi."
+        fi
+    fi
+fi
+
+# 8. Aniqlangan ishonchli HTTPS URL ni SQLite baza + Telegram Menu tugmasiga sinxronlash
+"$PY_BIN" - "$ACTIVE_WEBAPP_URL" <<'PYEOF'
+import sys, sqlite3, json, urllib.request, config
+url = sys.argv[1].strip()
+if url:
+    try:
+        conn = sqlite3.connect("database.db", timeout=15)
+        conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webapp_url', ?)", (url,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("DB webapp_url sync warning:", e)
+    try:
+        payload = json.dumps({
+            "menu_button": {
+                "type": "web_app",
+                "text": "🎬 WebApp",
+                "web_app": {"url": url}
+            }
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{config.BOT_TOKEN}/setChatMenuButton",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        print("🔗 Telegram Menu WebApp sinxronlandi:", url)
+    except Exception as e:
+        print("Telegram menu sync warning:", e)
+PYEOF
 
 echo "=========================================================="
 echo "🚀 Movie Land Ultra Bot 24/7 rejimda ishga tushdi!"
-echo "📌 Jarayon (PID): $NEW_PID"
+echo "📌 Bot PID: $NEW_PID | Lokal WebApp Port: $LOCAL_PORT"
+echo "🌐 Faol HTTPS WebApp: $ACTIVE_WEBAPP_URL"
 echo "📜 Oxirgi loglar:"
 tail -n 10 bot.log 2>/dev/null || true
 echo "=========================================================="

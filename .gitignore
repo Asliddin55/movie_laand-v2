@@ -11,6 +11,8 @@ __pycache__/
 bot.pid
 *.pid
 *.lock
+.cloudflared
+.webapp_port
 
 # Logs
 *.log

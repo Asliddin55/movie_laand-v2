@@ -1420,17 +1420,63 @@ async def search_movies_by_name(query: str, limit: int = 20):
         ) as cur:
             rows = [dict(r) for r in await cur.fetchall()]
 
-        # Apostrof yoki harf farqlari bo'lsa (masalan: "Orgimchak" -> "O'rgimchak"), barcha kinolar ichidan aqlli qidiruv
+        # Apostrof, kirill/lotin yoki imlo farqlari bo'lsa ("garry poter" -> "Garri Potter", "Orgimchak" -> "O'rgimchak")
         norm_q = _norm_movie_key(raw_q)
         if norm_q and len(rows) < limit:
+            import difflib
+            try:
+                from ai_service import phonetic_key as _phon_key
+            except Exception:
+                _phon_key = _norm_movie_key
+
+            q_phon = _phon_key(raw_q)
+            q_words = [w for w in q_phon.split() if len(w) >= 2]
+            fuzzy_hits = []
+
             async with db.execute(
                 "SELECT * FROM movies ORDER BY CAST(code AS INTEGER) DESC, views DESC"
             ) as all_cur:
                 for r in await all_cur.fetchall():
                     d = dict(r)
-                    haystack = f"{_norm_movie_key(d.get('name', ''))} {_norm_movie_key(d.get('caption', ''))} {d.get('code', '')}"
+                    m_name = str(d.get("name") or "")
+                    m_norm = _norm_movie_key(m_name)
+                    haystack = f"{m_norm} {_norm_movie_key(d.get('caption', ''))} {d.get('code', '')}"
                     if norm_q in haystack:
-                        rows.append(d)
+                        fuzzy_hits.append((120.0, d))
+                        continue
+
+                    m_phon = _phon_key(m_name)
+                    if not q_phon or not m_phon:
+                        continue
+                    score = 0.0
+                    if q_phon == m_phon:
+                        score = 150.0
+                    elif len(q_phon) >= 4 and (q_phon in m_phon or (len(m_phon) >= 4 and m_phon in q_phon)):
+                        score = 110.0
+                    else:
+                        ratio = difflib.SequenceMatcher(None, q_phon, m_phon).ratio()
+                        if ratio >= 0.70:
+                            score = ratio * 115.0
+                        elif q_words:
+                            m_words = [w for w in m_phon.split() if len(w) >= 2]
+                            hits = 0
+                            for qw in q_words:
+                                if qw in m_words:
+                                    hits += 1
+                                elif len(qw) >= 4 and any(mw.startswith(qw) or qw.startswith(mw) for mw in m_words if len(mw) >= 4):
+                                    hits += 1
+                                elif m_words and max(difflib.SequenceMatcher(None, qw, mw).ratio() for mw in m_words) >= 0.78:
+                                    hits += 1
+                            if hits == len(q_words):
+                                score = 95.0
+                            elif hits > 0 and len(q_words) >= 3 and hits >= len(q_words) - 1:
+                                score = 60.0
+                    if score >= 55.0:
+                        fuzzy_hits.append((score, d))
+
+            fuzzy_hits.sort(key=lambda x: x[0], reverse=True)
+            for _, d in fuzzy_hits:
+                rows.append(d)
 
         return _deduplicate_movies(rows, limit)
     finally:

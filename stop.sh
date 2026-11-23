@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Movie Land Ultra Bot - Linux VPS Xavfsiz To'xtatish skripti
+# Movie Land Ultra Bot - Linux VPS / MyXvest Xavfsiz To'xtatish skripti
 # ==============================================================================
 cd "$(dirname "$0")"
 
@@ -26,3 +26,15 @@ else
     echo "⚠️ bot.pid fayli topilmadi. Barcha main.py jarayonlari tekshirilmoqda..."
     pkill -f "python.*main.py" 2>/dev/null && echo "✅ Bot jarayoni to'xtatildi." || echo "ℹ️ Faol bot jarayoni topilmadi."
 fi
+
+if [ -f "cloudflared.pid" ]; then
+    CF_PID=$(cat cloudflared.pid 2>/dev/null || true)
+    if [ -n "$CF_PID" ] && kill -0 "$CF_PID" 2>/dev/null; then
+        echo "🛑 Cloudflare HTTPS Tunnel (PID: $CF_PID) to'xtatilmoqda..."
+        kill -15 "$CF_PID" 2>/dev/null || kill -9 "$CF_PID" 2>/dev/null || true
+        echo "✅ Tunnel to'xtatildi."
+    fi
+    rm -f cloudflared.pid
+fi
+pkill -f "\.cloudflared tunnel" 2>/dev/null || true
+rm -f .webapp_port
