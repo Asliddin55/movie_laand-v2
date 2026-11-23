@@ -6937,19 +6937,28 @@ async def start_dummy_health_server():
         await runner.setup()
         bind_host = "0.0.0.0" if os.getenv("PORT") else "127.0.0.1"
         bound_port = None
-        for cand_port in range(port, port + 25):
-            try:
-                site = web.TCPSite(runner, bind_host, cand_port)
+        if port == 0:
+            site = web.TCPSite(runner, bind_host, 0)
+            await site.start()
+            bound_port = site._server.sockets[0].getsockname()[1]
+        else:
+            for cand_port in range(port, port + 30):
+                try:
+                    site = web.TCPSite(runner, bind_host, cand_port)
+                    await site.start()
+                    bound_port = cand_port
+                    break
+                except OSError:
+                    continue
+            if bound_port is None:
+                site = web.TCPSite(runner, bind_host, 0)
                 await site.start()
-                bound_port = cand_port
-                break
-            except OSError:
-                continue
-        if bound_port is None:
-            raise OSError(f"No free port found in range {port}-{port+24}")
+                bound_port = site._server.sockets[0].getsockname()[1]
         try:
-            with open(os.path.join(BASE_DIR, ".webapp_port"), "w", encoding="utf-8") as pf:
+            tmp_pf = os.path.join(BASE_DIR, ".webapp_port.tmp")
+            with open(tmp_pf, "w", encoding="utf-8") as pf:
                 pf.write(str(bound_port))
+            os.replace(tmp_pf, os.path.join(BASE_DIR, ".webapp_port"))
         except Exception:
             pass
         logging.info(f"Movie Land WebApp & HTTP Server listening on {bind_host}:{bound_port}")

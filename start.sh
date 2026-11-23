@@ -79,18 +79,21 @@ pkill -f "\.cloudflared tunnel" 2>/dev/null || true
 rm -f .webapp_port
 sleep 1
 
-# 6. Botni (ichki WebApp HTTP serveri bilan) orqa fonda ishga tushirish
-export WEBAPP_PORT=8765
+# 6. Botni (ichki WebApp HTTP serveri — 100% bo'sh kernel portda!) orqa fonda ishga tushirish
+export WEBAPP_PORT=0
 nohup "$PY_BIN" main.py > bot.log 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > bot.pid
 
-# Lokal WebApp server portini kutish (maks 8 soniya)
-LOCAL_PORT="8765"
-for i in 1 2 3 4 5 6 7 8; do
+# Lokal WebApp server tayyor bo'lishini va AYNAN Movie Land javob berishini tekshirish (maks 25 soniya)
+LOCAL_PORT=""
+for i in $(seq 1 25); do
     if [ -f ".webapp_port" ]; then
-        LOCAL_PORT=$(cat .webapp_port 2>/dev/null || echo "8765")
-        break
+        CAND_PORT=$(cat .webapp_port 2>/dev/null | tr -dc '0-9' || true)
+        if [ -n "$CAND_PORT" ] && curl -sf --max-time 2 "http://127.0.0.1:${CAND_PORT}/health" 2>/dev/null | grep -q "Movie Land"; then
+            LOCAL_PORT="$CAND_PORT"
+            break
+        fi
     fi
     sleep 1
 done
@@ -101,8 +104,12 @@ ACTIVE_WEBAPP_URL="$SITE_URL"
 
 if curl -sfI --max-time 6 "$SITE_URL" >/dev/null 2>&1; then
     echo "🔒 MyXvest domeni ishonchli SSL sertifikatga ega: $SITE_URL"
+elif [ -z "$LOCAL_PORT" ]; then
+    echo "❌ Lokal Movie Land WebApp serveri 25 soniyada ko'tarilmadi! bot.log ni tekshiring:"
+    tail -n 20 bot.log 2>/dev/null || true
 else
-    echo "⚠️ MyXvest SSL hali o'z-o'zidan imzolangan (self-signed) — telefonda oq ekran bo'lmasligi uchun bepul ishonchli Cloudflare HTTPS Tunnel ishga tushirilmoqda..."
+    echo "✅ Movie Land lokal WebApp serveri tayyor: http://127.0.0.1:${LOCAL_PORT}"
+    echo "⚠️ MyXvest SSL hali self-signed — telefonda oq ekran bo'lmasligi uchun Cloudflare HTTPS Tunnel ishga tushirilmoqda..."
     if [ ! -x "./.cloudflared" ]; then
         echo "📦 cloudflared yuklab olinmoqda (bir martalik)..."
         curl -sSL -o ./.cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" || true
