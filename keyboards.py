@@ -84,6 +84,7 @@ def user_inline_dashboard(lang: str = "uz", webapp_url: str = None):
     lang = "ru" if lang == "ru" else "uz"
     search_lbl = "🔍 Поиск фильмов" if lang == "ru" else "🔍 Kino qidirish"
     webapp_lbl = "🎬 Movie Land WebApp"
+    ai_lbl = "🤖 Movie Land AI"
     w_url = (webapp_url or config.WEBAPP_URL).strip()
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -91,7 +92,8 @@ def user_inline_dashboard(lang: str = "uz", webapp_url: str = None):
                 ibtn(text=search_lbl, switch_inline_query_current_chat="", style="primary")
             ],
             [
-                ibtn(text=webapp_lbl, web_app=WebAppInfo(url=w_url), style="success")
+                ibtn(text=webapp_lbl, web_app=WebAppInfo(url=w_url), style="success"),
+                ibtn(text=ai_lbl, callback_data="nav:ai", style="primary")
             ],
             [
                 ibtn(text=BTN["top"][lang], switch_inline_query_current_chat="top"),
@@ -119,6 +121,48 @@ def user_inline_dashboard(lang: str = "uz", webapp_url: str = None):
             ]
         ]
     )
+
+
+def movie_land_ai_inline(recommended_movies: list = None, lang: str = "uz"):
+    """Movie Land AI yordamchisi uchun tezkor tavsiya va kino ochish tugmalari."""
+    rows = []
+    if recommended_movies:
+        for m in recommended_movies[:6]:
+            badge = "📺" if m.get("is_serial") else "🎬"
+            m_name = str(m.get("name", ""))[:30]
+            rows.append([
+                ibtn(
+                    text=f"{badge} #{m['code']} — {m_name} ({m.get('year', '')})",
+                    callback_data=f"open_mov:{m['code']}",
+                    style="success"
+                )
+            ])
+    else:
+        if lang == "ru":
+            rows.extend([
+                [
+                    ibtn(text="🔥 Лучшие боевики", callback_data="ai_quick:боевик топ"),
+                    ibtn(text="😂 Смешная комедия", callback_data="ai_quick:комедия")
+                ],
+                [
+                    ibtn(text="📺 Посоветуй сериал", callback_data="ai_quick:сериал"),
+                    ibtn(text="🚀 Фантастика", callback_data="ai_quick:фантастика")
+                ]
+            ])
+        else:
+            rows.extend([
+                [
+                    ibtn(text="🔥 Eng zo'r jangari", callback_data="ai_quick:eng zor jangari kino"),
+                    ibtn(text="😂 Kulgili komediya", callback_data="ai_quick:kulgili komediya kino")
+                ],
+                [
+                    ibtn(text="📺 Zo'r serial tavsiya qil", callback_data="ai_quick:zor serial tavsiya qil"),
+                    ibtn(text="🚀 Fantastika va sehr", callback_data="ai_quick:fantastika sehrgar kino")
+                ]
+            ])
+    exit_lbl = "🔙 Выйти из AI" if lang == "ru" else "🔙 AI dan chiqish"
+    rows.append([ibtn(text=exit_lbl, callback_data="exit_ai_mode", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ===================== 2. MODERATOR VA ADMINISTRATOR PANELI =====================
@@ -249,8 +293,18 @@ def earn_money_inline(ref_link: str, daily_amount: str, ref_amount: str, lang: s
 
 
 # ===================== 5. FOYDALANUVCHI VIP DO'KON, KARTA VA OTZIV INLINE (UZ / RU) =====================
-def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_tag: str = "PREMIUM", lang: str = "uz"):
+def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_tag: str = "PREMIUM", lang: str = "uz", show_extend: bool = False):
     if lang == "ru":
+        if is_vip and not show_extend:
+            return InlineKeyboardMarkup(inline_keyboard=[
+                [ibtn(text=f"🏷 VIP Тег: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")],
+                [
+                    ibtn(text="⚡ Включить тег", callback_data="vip_apply_tags_now"),
+                    ibtn(text="💬 Отзыв", callback_data="vip_leave_review")
+                ],
+                [ibtn(text="🔄 Продлить VIP подписку", callback_data="vip_extend_menu")],
+                [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
+            ])
         buttons = [
             [ibtn(text=f"💎 7 дней VIP ✦ {int(p7):,} сум", callback_data="buy_vip:7")],
             [ibtn(text=f"🔥 30 дней VIP ✦ {int(p30):,} сум", callback_data="buy_vip:30", style="primary")],
@@ -259,15 +313,20 @@ def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_
                 ibtn(text="💳 Оплата картой", callback_data="pay_by_card"),
                 ibtn(text="🎁 Бонусы", callback_data="go_earn_menu")
             ],
-            [ibtn(text="🔙 Назад", callback_data="back_main_menu")]
+            [ibtn(text="🔙 Назад", callback_data="open_vip_shop" if is_vip else "back_main_menu")]
         ]
-        if is_vip:
-            buttons.insert(0, [ibtn(text=f"🏷 VIP Тег: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
-            buttons.insert(1, [
-                ibtn(text="⚡ Включить тег", callback_data="vip_apply_tags_now"),
-                ibtn(text="💬 Отзыв", callback_data="vip_leave_review")
-            ])
         return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    if is_vip and not show_extend:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [ibtn(text=f"🏷 VIP Tegim: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")],
+            [
+                ibtn(text="⚡ Tegni yoqish", callback_data="vip_apply_tags_now"),
+                ibtn(text="💬 Otziv yozish", callback_data="vip_leave_review")
+            ],
+            [ibtn(text="🔄 VIP muddatini uzaytirish", callback_data="vip_extend_menu")],
+            [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
+        ])
 
     buttons = [
         [ibtn(text=f"💎 7 Kunlik VIP ✦ {int(p7):,} so'm", callback_data="buy_vip:7")],
@@ -277,14 +336,8 @@ def user_vip_shop_inline(p7: str, p30: str, p90: str, is_vip: bool = False, cur_
             ibtn(text="💳 Karta orqali to'lov", callback_data="pay_by_card"),
             ibtn(text="🎁 Bonus yig'ish", callback_data="go_earn_menu")
         ],
-        [ibtn(text="🔙 Orqaga", callback_data="back_main_menu")]
+        [ibtn(text="🔙 Orqaga", callback_data="open_vip_shop" if is_vip else "back_main_menu")]
     ]
-    if is_vip:
-        buttons.insert(0, [ibtn(text=f"🏷 VIP Tegim: [{cur_tag}]", callback_data="vip_choose_tag", style="primary")])
-        buttons.insert(1, [
-            ibtn(text="⚡ Tegni yoqish", callback_data="vip_apply_tags_now"),
-            ibtn(text="💬 Otziv yozish", callback_data="vip_leave_review")
-        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

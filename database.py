@@ -423,6 +423,13 @@ async def init_db():
     finally:
         await db.close()
 
+    # Bot ishga tushganda arxiv katalogidagi barcha backup chiqindilarini tozalash
+    # va Oy Ritsari kabi seriallarni avtomatik qayta tahlil qilib guruhlash!
+    try:
+        await reparse_and_clean_archive_catalog()
+    except Exception:
+        pass
+
 
 # ===================== SOZLAMALAR =====================
 async def get_setting(key: str, default: str = "") -> str:
@@ -1929,7 +1936,7 @@ async def auto_promote_archive_serials() -> int:
     promoted = 0
     try:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT msg_id, base_title, season_num, part_num, is_serial FROM archive_catalog WHERE is_serial = 0") as cur:
+        async with db.execute("SELECT msg_id, base_title, parsed_name, raw_caption, year, season_num, part_num, is_serial FROM archive_catalog WHERE is_serial = 0") as cur:
             rows = [dict(r) for r in await cur.fetchall()]
         groups = {}
         for r in rows:
@@ -1940,7 +1947,13 @@ async def auto_promote_archive_serials() -> int:
         for k, items in groups.items():
             uniq_eps = set((int(it.get("season_num") or 1), int(it.get("part_num") or 1)) for it in items)
             has_multi_season = len(set(int(it.get("season_num") or 1) for it in items)) > 1
-            if len(uniq_eps) >= 6 or has_multi_season:
+            has_final = any(
+                "final" in ((it.get("parsed_name") or "") + " " + (it.get("raw_caption") or "")).lower()
+                for it in items
+            )
+            years = {str(it.get("year") or "").strip() for it in items if str(it.get("year") or "").strip()}
+            same_year_mini = (len(uniq_eps) >= 4 and len(years) <= 1 and (has_final or len(uniq_eps) >= 6))
+            if len(uniq_eps) >= 6 or has_multi_season or same_year_mini:
                 for it in items:
                     await db.execute("UPDATE archive_catalog SET is_serial = 1 WHERE msg_id = ?", (it["msg_id"],))
                 promoted += 1
@@ -1949,6 +1962,73 @@ async def auto_promote_archive_serials() -> int:
         return promoted
     finally:
         await db.close()
+
+
+async def reparse_and_clean_archive_catalog() -> dict:
+    """
+    Arxiv katalogidagi barcha mavjud yozuvlarni chuqur tozalaydi va qayta tahlil qiladi:
+    1) Backup/JSON/DB/ZIP kabi kino bo'lmagan chiqindi fayllarni (MAXSUS BAZA BACKUP va b.) butkul o'chiradi;
+    2) Yangilangan aqlli tahlilchi (file_name dagi _3-qism_, FINAL, fasl, Oy Ritsari va b.) orqali
+       hali yuklanmagan barcha qatorlarni qayta tahlil qiladi (is_serial, base_title, season_num, part_num);
+    3) Barcha mini-serial va seriallarni (masalan Oy Ritsari 1..6-qism) avtomatik serial sifatida guruhlaydi!
+    """
+    import ai_service as _ais
+    junk_exts = (".json", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz", ".sql", ".txt", ".py", ".log")
+    db = await get_db_conn()
+    removed_junk = 0
+    reparsed = 0
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT msg_id, file_name, raw_caption, parsed_name, base_title, year, is_serial, season_num, part_num, is_imported "
+            "FROM archive_catalog"
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+
+        for r in rows:
+            fn = (r.get("file_name") or "").strip().lower()
+            cap = (r.get("raw_caption") or "").strip()
+            pn = (r.get("parsed_name") or "").strip()
+            cap_up = f"{cap} {pn}".upper()
+            if (
+                fn.endswith(junk_exts)
+                or "BAZA BACKUP" in cap_up
+                or "AVTOMATIK HAFTALIK BACKUP" in cap_up
+                or "AVTOMATIK BACKUP" in cap_up
+                or "JSON FORMAT (KINOLAR" in cap_up
+            ):
+                await db.execute("DELETE FROM archive_catalog WHERE msg_id = ?", (r["msg_id"],))
+                removed_junk += 1
+                continue
+
+            if r.get("is_imported"):
+                continue
+
+            ext = _ais.extract_base_title_and_part(pn or r.get("base_title") or "", raw_caption=cap, file_name=r.get("file_name") or "")
+            new_bt = ext.get("base_title") or r.get("base_title") or pn
+            new_ser = int(ext.get("is_serial") or 0)
+            new_s = max(1, int(ext.get("season_num") or 1))
+            new_p = max(1, int(ext.get("part_num") or 1))
+
+            if (
+                new_bt != (r.get("base_title") or "")
+                or new_ser != int(r.get("is_serial") or 0)
+                or new_s != int(r.get("season_num") or 1)
+                or new_p != int(r.get("part_num") or 1)
+            ):
+                await db.execute(
+                    "UPDATE archive_catalog SET base_title = ?, is_serial = ?, season_num = ?, part_num = ? WHERE msg_id = ?",
+                    (new_bt, new_ser, new_s, new_p, r["msg_id"])
+                )
+                reparsed += 1
+
+        if removed_junk or reparsed:
+            await db.commit()
+    finally:
+        await db.close()
+
+    promoted = await auto_promote_archive_serials()
+    return {"removed_junk": removed_junk, "reparsed": reparsed, "promoted_serials": promoted}
 
 async def get_max_archive_catalog_msg_id() -> int:
     db = await get_db_conn()

@@ -463,8 +463,33 @@ async def run_audit():
     )
     record(107, "MyXvest WebApp domeni, index.php, api.php va .htaccess mavjudligi", p107, f"URL={w_url}")
 
+    # 108: Oy Ritsari 6-qism (1..6) aniqlanishi va backup chiqindilar yo'qligi
+    oy_grps = await db.get_unimported_archive_serials_grouped(10)
+    oy_grp = next((g for g in oy_grps if g["base_title"] == "Oy Ritsari"), None)
+    oy_parts = sorted([x.get("part_num") for x in oy_grp["items"]]) if oy_grp else []
+    oy_in_movies = await db.find_movie_by_exact_name("Oy Ritsari")
+    p108 = (oy_parts == [1, 2, 3, 4, 5, 6]) or (oy_in_movies is not None)
+    record(108, "Oy Ritsari (1..6-qism FINAL va _3-qism_) serial sifatida to'liq aniqlanishi", p108, f"Oy Ritsari qismlari: {oy_parts}")
+
+    # 109: Poster Card «▶️ Kino ko'rish» da 'allaqachon ochilgan' bloki olib tashlangani
+    p109 = ('call.answer(f"▶️ {ep_num}-qism allaqachon ochilgan!")' not in m_txt) and ("_ACTIVE_EP_TRACKER.pop((user_id, code), None)" in m_txt)
+    record(109, "Kino ko'rish tugmasi bloklanish bugi (1-qism allaqachon ochilgan) bartaraf etildi", p109, "send_movie_card + watch handler toza")
+
+    # 110: Faol VIP foydalanuvchiga sotib olish tugmalari qayta chiqmasligi (faqat Uzaytirish)
+    vip_active_kb = kb.user_vip_shop_inline("10000", "25000", "60000", is_vip=True, show_extend=False)
+    vip_cbs = [b.callback_data for row in vip_active_kb.inline_keyboard for b in row]
+    p110 = ("vip_extend_menu" in vip_cbs) and not any(c and c.startswith("buy_vip:") for c in vip_cbs)
+    record(110, "Faol VIP da sotib olish tugmalari yashirilib, VIP Kabineti ko'rsatilishi", p110, f"Callbacks: {vip_cbs}")
+
+    # 111: Movie Land AI yordamchisi (Bot + AI dvigateli)
+    all_movs_ai = await db.get_all_movies(200)
+    ai_ans = await ai_service.movie_land_ai_chat("sehrgar qirol haqida serial tavsiya qil", all_movs_ai, lang="uz")
+    has_ai_btn = any("Movie Land AI" in tx for tx in all_dash_texts)
+    p111 = bool(ai_ans.get("reply")) and len(ai_ans.get("movies") or []) >= 1 and has_ai_btn
+    record(111, "Movie Land AI bo'limi va jonli kino tavsiya dvigateli", p111, f"Topildi: {[m['name'] for m in (ai_ans.get('movies') or [])[:3]]}")
+
     p100 = all(r[2] for r in audit_results)
-    record(100, "107-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
+    record(100, "111-BOSQICHLI INTEGRATSION AUDIT YAKUNI", p100, "Barcha tizimlar 100% muvaffaqiyatli sinovdan o'tdi!")
 
     # Audit davomida yaratilgan vaqtinchalik test yozuvlarini tozalash (bazada iz qolmasligi uchun)
     async with aiosqlite.connect(db.DB_NAME, timeout=30.0) as c:

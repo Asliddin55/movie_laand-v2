@@ -319,7 +319,7 @@ async def cb_show_leaderboard(call: CallbackQuery):
 
 
 # ===================== 2. PREMIUM (VIP) DO'KON, TEG VA OTZIVLAR (UZ / RU) =====================
-async def send_vip_shop_screen(target, user_id: int):
+async def send_vip_shop_screen(target, user_id: int, show_extend: bool = False):
     lang = await db.get_user_lang(user_id)
     u = await db.get_user(user_id) or {}
     is_vip = await db.is_user_premium(user_id)
@@ -335,27 +335,28 @@ async def send_vip_shop_screen(target, user_id: int):
     if lang == "ru":
         if is_vip:
             until = (u.get("premium_until") or "Бессрочно")[:16].replace("T", " ")
-            status_block = f"💎 <b>VIP Активен</b> (до <code>{until}</code>) • Тег: <b>[{cur_tag}]</b>"
+            status_block = f"💎 <b>VIP Активен</b> (до <code>{until}</code>) • Тег: <b>[{cur_tag}]</b> • 💰 {bal:,} сум"
         else:
             status_block = f"👤 Статус: <b>Standard</b> • 💰 Баланс: <b>{bal:,} сум</b>"
         text = (
-            f"{config.pe('💎')} <b>PREMIUM VIP МАГАЗИН</b>\n\n"
+            f"{config.pe('💎')} <b>PREMIUM VIP {'КАБИНЕТ' if (is_vip and not show_extend) else 'МАГАЗИН'}</b>\n\n"
             f"<blockquote>{status_block}\n"
             f"🏷 Тег <code>[{cur_tag}]</code> в группе • 🎬 До {vip_lim} заказов/день</blockquote>"
         )
     else:
         if is_vip:
             until = (u.get("premium_until") or "Cheksiz")[:16].replace("T", " ")
-            status_block = f"💎 <b>VIP Faol</b> (<code>{until}</code> gacha) • Teg: <b>[{cur_tag}]</b>"
+            status_block = f"💎 <b>VIP Faol</b> (<code>{until}</code> gacha) • Teg: <b>[{cur_tag}]</b> • 💰 {bal:,} so'm"
         else:
             status_block = f"👤 Maqom: <b>Standard</b> • 💰 Balans: <b>{bal:,} so'm</b>"
+        vip_title = "KABINETI" if (is_vip and not show_extend) else "DO'KONI"
         text = (
-            f"{config.pe('💎')} <b>PREMIUM VIP DO'KONI</b>\n\n"
+            f"{config.pe('💎')} <b>PREMIUM VIP {vip_title}</b>\n\n"
             f"<blockquote>{status_block}\n"
             f"🏷 Guruhda <code>[{cur_tag}]</code> tegi • 🎬 Kuniga {vip_lim} ta buyurtma</blockquote>"
         )
 
-    markup = kb.user_vip_shop_inline(p7, p30, p90, is_vip=is_vip, cur_tag=cur_tag, lang=lang)
+    markup = kb.user_vip_shop_inline(p7, p30, p90, is_vip=is_vip, cur_tag=cur_tag, lang=lang, show_extend=show_extend)
     if isinstance(target, CallbackQuery):
         try:
             await target.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
@@ -371,7 +372,12 @@ async def cmd_vip_shop(message: Message):
 @eco_router.callback_query(F.data == "open_vip_shop")
 async def cb_open_vip_shop(call: CallbackQuery):
     await call.answer()
-    await send_vip_shop_screen(call, call.from_user.id)
+    await send_vip_shop_screen(call, call.from_user.id, show_extend=False)
+
+@eco_router.callback_query(F.data == "vip_extend_menu")
+async def cb_vip_extend_menu(call: CallbackQuery):
+    await call.answer()
+    await send_vip_shop_screen(call, call.from_user.id, show_extend=True)
 
 @eco_router.callback_query(F.data.startswith("buy_vip:"))
 async def cb_buy_vip_with_balance(call: CallbackQuery, bot: Bot):
@@ -422,6 +428,12 @@ async def cb_buy_vip_with_balance(call: CallbackQuery, bot: Bot):
             url=f"{config.MAIN_TOPIC_GROUP_LINK}/{config.TOPIC_CHAT_ID}"
         )]
     ])
+
+    # Eski VIP do'kon xabarini darhol faol VIP holatiga yangilaymiz (tugmalar qolib ketmaydi!)
+    try:
+        await send_vip_shop_screen(call, user_id, show_extend=False)
+    except Exception:
+        pass
 
     if lang == "ru":
         await call.answer("🎉 Поздравляем! Premium (VIP) активирован!", show_alert=True)

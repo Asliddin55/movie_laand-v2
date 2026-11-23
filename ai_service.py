@@ -1491,8 +1491,13 @@ EXACT_TMDB_SEARCH_MAP = {
     "betmen muqaddima": ("Batman Begins", "2005", False),
     "yalang oyoq muhabbat": ("Barefoot", "2014", False),
     "iztopar afsonasi": ("Legend of the Seeker", "2008", True),
+    "oy ritsari": ("Moon Knight", "2022", True),
     "supermen polat odam": ("Man of Steel", "2013", False),
     "uch bahodir va yer kindigi": ("Три богатыря и Пуп Земли", "2023", False),
+    "misr afsonalari": ("Gods of Egypt", "2016", False),
+    "omadsizga kulgan omad": ("Just My Luck", "2006", False),
+    "garoyib odamlar 4": ("X-Men Origins: Wolverine", "2009", False),
+    "karib dengizi qaroqchilari 4 nomalum sohillarda": ("Pirates of the Caribbean: On Stranger Tides", "2011", False),
 }
 
 
@@ -1538,27 +1543,34 @@ def _extract_season_and_episode(raw_n: str, raw_caption: str = "", file_name: st
     """
     Nom, caption va fayl nomidan (season_num, episode_num, has_serial_marker) ni 100% aniqlikda ajratadi.
     Barcha formatlarni qo'llab-quvvatlaydi:
-      - S02E14 / s1e5 / 2F14Q / 2F1Q14Q
+      - S02E14 / s1e5 / 2F14Q / 2F1Q14Q / [s1s1q720]
       - 2-fasl 14-qism / 1-sezon 5-seriya / 2-mavsum 3-epizod
-      - 14-qism / 25-seriya / 12-epizod / Qism: 14 / Seriya 5
+      - @Kino_BluRay_Uzb_Oy_Ritsari_3-qism_1080p.mkv (tagchiziqlar bo'lsa ham!)
+      - 6-qism FINAL / 14-qism / 25-seriya / 12-epizod / Qism: 14 / Seriya 5
     """
     season = 1
     episode = 1
     found_marker = False
-    combined = f"{raw_n}\n{raw_caption}\n{file_name}"
+    fn_clean = re.sub(r"[_\.]+", " ", file_name or "")
+    combined = f"{raw_n}\n{raw_caption}\n{fn_clean}"
+    comb_low = combined.lower()
 
-    # 1. Aniq S01E05 yoki 1F5Q formatlar
+    # 1. Aniq S01E05, [s1s5q720] yoki 1F5Q formatlar
     se_m = (
-        re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", file_name)
+        re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", fn_clean)
         or re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", raw_n)
         or re.search(r"[sS](\d{1,2})\s*[eE](\d{1,3})", raw_caption)
     )
     if se_m:
         return max(1, int(se_m.group(1))), max(1, int(se_m.group(2))), True
 
+    anidub_m = re.search(r"\[s(\d{1,2})s(\d{1,3})q", file_name or "", flags=re.IGNORECASE)
+    if anidub_m:
+        return max(1, int(anidub_m.group(1))), max(1, int(anidub_m.group(2))), True
+
     fq_m = (
-        re.search(r"(\d{1,2})F\d+Q(\d{1,3})Q", file_name, flags=re.IGNORECASE)
-        or re.search(r"(\d{1,2})F(\d{1,3})Q", file_name, flags=re.IGNORECASE)
+        re.search(r"(\d{1,2})F\d+Q(\d{1,3})Q", file_name or "", flags=re.IGNORECASE)
+        or re.search(r"(\d{1,2})F(\d{1,3})Q", file_name or "", flags=re.IGNORECASE)
     )
     if fq_m:
         return max(1, int(fq_m.group(1))), max(1, int(fq_m.group(2))), True
@@ -1572,17 +1584,21 @@ def _extract_season_and_episode(raw_n: str, raw_caption: str = "", file_name: st
         season = max(1, int(s_m.group(1)))
         found_marker = True
 
-    # 3. Qism / Seriya / Epizod raqamini ajratish (1..999 gacha!)
+    # 3. Qism / Seriya / Epizod raqamini ajratish (1..999 gacha, tagchiziqli fayl nomlaridan ham!)
     ep_m = (
         re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", raw_n, flags=re.IGNORECASE)
         or re.search(r"\b(?:qism|seriya|epizod|серия|эпизод|ep\.?)\s*[:=#-]?\s*(\d{1,3})\b", raw_n, flags=re.IGNORECASE)
         or re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", raw_caption, flags=re.IGNORECASE)
         or re.search(r"\b(?:qism|seriya|epizod|серия|эпизод|ep\.?)\s*[:=#-]?\s*(\d{1,3})\b", raw_caption, flags=re.IGNORECASE)
-        or re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", file_name, flags=re.IGNORECASE)
+        or re.search(r"\b(\d{1,3})\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b", fn_clean, flags=re.IGNORECASE)
+        or re.search(r"\b(?:qism|seriya|epizod|серия|эпизод|ep\.?)\s*[:=#-]?\s*(\d{1,3})\b", fn_clean, flags=re.IGNORECASE)
     )
     if ep_m:
         episode = max(1, int(ep_m.group(1)))
-        if episode >= 10 or any(k in combined.lower() for k in ("serial", "seriya", "серия", "epizod", "эпизод", "fasl", "sezon", "mavsum")):
+        if (
+            episode >= 10
+            or any(k in comb_low for k in ("serial", "сериал", "seriya", "серия", "epizod", "эпизод", "fasl", "sezon", "mavsum", "final", "финал"))
+        ):
             found_marker = True
 
     return season, episode, found_marker
@@ -1590,14 +1606,16 @@ def _extract_season_and_episode(raw_n: str, raw_caption: str = "", file_name: st
 
 def _clean_serial_base_title(raw_n: str) -> str:
     b = (raw_n or "").strip()
+    b = re.sub(r"^[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\s]+", "", b).strip()
     b = re.sub(r"^[\W_]*(?:serial|сериал)[\W_:]*", "", b, flags=re.IGNORECASE).strip()
     b = re.sub(r"\(\s*(?:serial|сериал|19\d{2}|20\d{2}|o['`‘ʻ]?zbek\s*tilida|uzbek\s*tilida).*?\)", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\[\s*(?:1080p|720p|480p|4k|hd|full\s*hd).*?\]", "", b, flags=re.IGNORECASE)
     b = re.sub(r"\b[sS]\d{1,2}\s*[eE]\d{1,3}\b.*$", "", b)
     b = re.sub(r"\b\d{1,2}\s*[-–.]?\s*(?:fasl|sezon|mavsum|season)\b.*$", "", b, flags=re.IGNORECASE)
     b = re.sub(r"\b(?:fasl|sezon|mavsum|season)\s*[:=#-]?\s*\d{1,2}\b.*$", "", b, flags=re.IGNORECASE)
     b = re.sub(r"\b\d{1,3}\s*[-–.]?\s*(?:qism|seriya|epizod|серия|эпизод)\b.*$", "", b, flags=re.IGNORECASE)
     b = re.sub(r"\b(?:qism|seriya|epizod|серия|эпизод)\s*[:=#-]?\s*\d{1,3}\b.*$", "", b, flags=re.IGNORECASE)
-    b = re.sub(r"\b(?:serial|сериал)\b", "", b, flags=re.IGNORECASE)
+    b = re.sub(r"\b(?:serial|сериал|final|финал|1080p|720p|480p|full\s*hd|4k\s*ultra)\b", "", b, flags=re.IGNORECASE)
     b = re.sub(r"\s+", " ", b).strip(" -–:|,._()[]«»\"")
     return b or raw_n.strip()
 
@@ -1606,13 +1624,14 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
     """
     Kino yoki serial nomidan:
     - is_serial: 1 (agar serial bo'lsa) yoki 0 (kino)
-    - base_title: Guruhlash uchun asosiy kino/serial nomi (masalan: 'Mumiyo', 'Garri Potter', 'Afsungar Merlin')
+    - base_title: Guruhlash uchun asosiy kino/serial nomi (masalan: 'Mumiyo', 'Garri Potter', 'Afsungar Merlin', 'Oy Ritsari')
     - season_num: Fasl raqami (1, 2, 3...)
     - part_num: Qism tartib raqami (1, 2, 3... 999)
     """
     raw_n = (name or "").strip()
     norm_n = _norm_title(raw_n)
-    blob = _norm_title(f"{raw_n} {raw_caption} {file_name}")
+    fn_clean = re.sub(r"[_\.]+", " ", file_name or "")
+    blob = _norm_title(f"{raw_n} {raw_caption} {fn_clean}")
     snum, epnum, has_serial_marker = _extract_season_and_episode(raw_n, raw_caption, file_name)
 
     # 1. Haqiqiy ma'lum seriallarni aniq aniqlash
@@ -1624,6 +1643,9 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
 
     if "iztopar" in norm_n or "iztopar" in blob:
         return {"is_serial": 1, "base_title": "Iztopar Afsonasi", "season_num": snum, "part_num": epnum}
+
+    if "oy ritsari" in norm_n or "oy ritsari" in blob or "moon knight" in blob:
+        return {"is_serial": 1, "base_title": "Oy Ritsari", "season_num": snum, "part_num": epnum}
 
     # 2. Ko'p qismli mashhur kinolar franshizalarini yagona base_title ostida va to'g'ri 1, 2, 3... tartibda birlashtirish
     if "predator" in norm_n and "xishnik" in norm_n:
@@ -1745,20 +1767,21 @@ def extract_base_title_and_part(name: str, raw_caption: str = "", file_name: str
     if ("uch bahodir" in norm_n or "uch baxodir" in norm_n) and ("ot taxt sohibi" in norm_n or "katta poygalar" in norm_n):
         return {"is_serial": 0, "base_title": "Uch bahodir va Katta poygalar", "season_num": 1, "part_num": 1}
 
-    # 3. Istalgan YANGI serialni avtomatik tanib olish (fasl/sezon/serial/seriya/S01E01/10+ qism)
+    # 3. Istalgan YANGI serialni avtomatik tanib olish (fasl/sezon/serial/seriya/final/S01E01/6+ qism)
     if has_serial_marker or any(k in norm_n or k in blob for k in ["serial", "сериал", "seriya", "серия", "fasl", "sezon", "mavsum", "epizod", "эпизод"]):
         btitle = _clean_serial_base_title(raw_n)
         return {"is_serial": 1, "base_title": btitle, "season_num": snum, "part_num": epnum}
 
-    # 4. Umumiy X-qism yozilgan kinolar yoki yangi seriallar (1..999 gacha!)
+    # 4. Umumiy X-qism yozilgan kinolar yoki yangi seriallar (1..999 gacha, FINAL bilan ham!)
     gen_m = re.search(r"^(.*?)\s+(\d{1,3})\s*[-–.]?\s*(?:qism|part)\b", raw_n, flags=re.IGNORECASE)
     if gen_m and len(gen_m.group(1).strip()) >= 3:
         pnum = int(gen_m.group(2))
         btitle = _clean_serial_base_title(gen_m.group(1))
-        is_ser = 1 if pnum >= 6 else 0
+        is_ser = 1 if (pnum >= 6 or "final" in blob or "финал" in blob) else 0
         return {"is_serial": is_ser, "base_title": btitle, "season_num": snum, "part_num": pnum}
 
-    return {"is_serial": 0, "base_title": raw_n, "season_num": 1, "part_num": 1}
+    clean_bt = _clean_serial_base_title(raw_n)
+    return {"is_serial": 1 if (epnum >= 6 or has_serial_marker) else 0, "base_title": clean_bt, "season_num": snum, "part_num": epnum}
 
 
 def _year_matches(cand_year_str: str, target_year_str: str, tolerance: int = 2) -> bool:
@@ -2184,3 +2207,209 @@ async def find_movie_poster_tmdb(name: str, year: str = "", is_serial: bool = Fa
             return omdb_res["poster"]
 
     return ""
+
+
+# ===================== MOVIE LAND AI — AQLLI KINO TAVSIYA VA QIDIRUV YORDAMCHISI =====================
+_AI_INTENT_GENRES = {
+    "jangari": ["jangari", "urush", "otishma", "jang", "qasos", "politsiya", "snayper", "maxsus", "boevik", "боевик", "экшн", "action", "superqahramon", "marvel", "dc"],
+    "komediya": ["komediya", "kulgili", "kulgi", "hazil", "quvnoq", "xursand", "комедия", "смешной", "смешная", "веселый", "comedy", "prikol"],
+    "fantastika": ["fantastika", "fantaziya", "sehr", "sehrgar", "kosmos", "robot", "kelajak", "ajdar", "superqahramon", "фантастика", "фэнтези", "магия", "космос", "marvel", "dc"],
+    "qo'rqinchli": ["qorqinchli", "qo'rqinchli", "ujas", "dahshat", "triller", "zombi", "jin", "arvoh", "qotil", "ужасы", "страшный", "триллер", "хоррор", "horror"],
+    "drama": ["drama", "dramma", "hayotiy", "tasirli", "ta'sirli", "yiglatadigan", "chuqur", "драма", "жизненный", "трогательный"],
+    "melodrama": ["melodrama", "sevgi", "muhabbat", "romantik", "romantika", "oshiq", "мелодрама", "любовь", "романтика", "романтический"],
+    "multfilm": ["multfilm", "multik", "bolalar", "oilaviy", "hayvon", "animatsiya", "мультфильм", "мультик", "семейный", "детский"],
+    "detektiv": ["detektiv", "sirli", "jinoyat", "kriminal", "tergov", "qotillik", "детектив", "криминал", "тайна", "расследование"],
+    "tarixiy": ["tarixiy", "qadimiy", "qirol", "ritsar", "imperiya", "jangchi", "исторический", "история", "древний", "король"],
+    "anime": ["anime", "yapon", "аниме", "японский"],
+}
+
+_AI_STOPWORDS = {
+    "menga", "uchun", "kino", "kinolar", "film", "filmlar", "topib", "ber", "bering", "tavsiya", "qil", "qiling",
+    "zor", "zo'r", "yaxshi", "eng", "bir", "bitta", "qaysi", "nima", "bor", "haqida", "bilan", "va", "yoki",
+    "ko'rish", "korish", "istayman", "xohlayman", "kerak", "qidir", "qidiryapman", "salom", "assalomu", "alaykum",
+    "посоветуй", "найди", "фильм", "фильмы", "кино", "мне", "для", "про", "лучший", "лучшие", "какой", "есть", "привет",
+}
+
+
+async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = "uz") -> dict:
+    """
+    Movie Land AI — foydalanuvchi so'rovini (kayfiyat, janr, syujet, yil, o'xshash kino, serial)
+    tushunib, jonli bazadagi eng mos kinolarni saralab, do'stona javob qaytaradi!
+    """
+    import html as _html
+    raw_q = (user_query or "").strip()
+    q_low = raw_q.lower()
+    q_norm = _norm_title(raw_q)
+
+    if not movies_catalog:
+        empty_msg = (
+            "🤖 <b>Movie Land AI:</b> Hozircha katalog to'ldirilmoqda. Tez orada minglab kinolar qo'shiladi!"
+            if lang != "ru" else
+            "🤖 <b>Movie Land AI:</b> Каталог сейчас наполняется. Скоро появятся лучшие фильмы!"
+        )
+        return {"reply": empty_msg, "movies": []}
+
+    # Salomlashish yoki yordam so'rovi
+    greetings = ("salom", "assalom", "privet", "привет", "hello", "hi", "qalaysan", "nima qila olasan", "yordam", "help")
+    if len(q_norm.split()) <= 3 and any(g in q_norm for g in greetings):
+        top_pick = sorted(movies_catalog, key=lambda x: int(x.get("views") or 0), reverse=True)[:4]
+        if lang == "ru":
+            msg = (
+                "🤖 <b>Привет! Я — Movie Land AI!</b>\n"
+                "Напишите настроение, жанр, год или сюжет фильма (например: <i>«смешная комедия»</i>, "
+                "<i>«фильм про магию и короля»</i> или <i>«посоветуй сериал»</i>) — я мгновенно подберу лучшие фильмы из нашей базы!\n\n"
+                "🔥 <b>Сейчас популярны:</b>"
+            )
+        else:
+            msg = (
+                "🤖 <b>Assalomu alaykum! Men — Movie Land AI yordamchisiman!</b>\n"
+                "Kayfiyatingiz, janr, yil yoki esingizda qolgan syujetni yozing (masalan: <i>«kulgili oilaviy kino»</i>, "
+                "<i>«sehrgar va qirol haqida serial»</i> yoki <i>«2024 jangari»</i>) — bazamizdan eng zo'rlarini topib beraman!\n\n"
+                "🔥 <b>Hozir eng mashhurlari:</b>"
+            )
+        return {"reply": msg, "movies": top_pick}
+
+    wants_serial = any(k in q_low for k in ("serial", "сериал", "qismli", "fasl", "sezon", "epizod"))
+    wants_movie_only = any(k in q_low for k in ("faqat kino", "bitta kino", "to'liq metraj"))
+    wants_top = any(k in q_low for k in ("top", "mashhur", "eng zo'r", "eng zor", "eng yaxshi", "reyting", "imdb", "лучш", "популяр", "топ"))
+    wants_new = any(k in q_low for k in ("yangi", "premyera", "oxirgi", "новейш", "новинк", "новый", "новые"))
+    wants_random = any(k in q_low for k in ("tasodif", "xohlagan", "farqi yo'q", "farqi yoq", "любой", "случайн"))
+
+    year_m = re.search(r"\b(19\d{2}|20\d{2})\b", raw_q)
+    target_year = year_m.group(1) if year_m else ""
+
+    matched_genres = []
+    for g_key, kws in _AI_INTENT_GENRES.items():
+        if any(kw in q_low or kw in q_norm for kw in kws):
+            matched_genres.append(g_key)
+
+    tokens = [w for w in q_norm.split() if len(w) >= 3 and w not in _AI_STOPWORDS]
+
+    scored = []
+    for m in movies_catalog:
+        score = 0.0
+        m_name = str(m.get("name") or "")
+        m_name_norm = _norm_title(m_name)
+        m_genre_low = str(m.get("genre") or "").lower()
+        m_cap_norm = _norm_title(str(m.get("caption") or ""))
+        m_country_low = str(m.get("country") or "").lower()
+        m_year = str(m.get("year") or "")
+        m_code = str(m.get("code") or "")
+        is_ser = bool(m.get("is_serial"))
+        views = int(m.get("views") or 0)
+        try:
+            imdb_f = float(str(m.get("imdb") or "8.0").replace(",", "."))
+        except Exception:
+            imdb_f = 8.0
+
+        # Kod bo'yicha aniq moslik
+        if q_norm.lstrip("#") == m_code:
+            score += 120.0
+
+        # Nom bo'yicha to'liq yoki qisman moslik
+        if q_norm and len(q_norm) >= 3:
+            if q_norm == m_name_norm:
+                score += 100.0
+            elif q_norm in m_name_norm or (len(m_name_norm) >= 4 and m_name_norm in q_norm):
+                score += 65.0
+
+        # So'zlar bo'yicha syujet + nom + davlat mosligi
+        for tok in tokens:
+            if tok in m_name_norm:
+                score += 24.0
+            if tok in m_cap_norm:
+                score += 10.0
+            if tok in m_genre_low:
+                score += 14.0
+            if tok in m_country_low:
+                score += 12.0
+
+        # Janr/kayfiyat mosligi
+        for gk in matched_genres:
+            if gk in m_genre_low or (gk == "qo'rqinchli" and "qorqinchli" in _norm_title(m_genre_low)):
+                score += 28.0
+
+        # Serial / Kino filtri
+        if wants_serial:
+            score += 36.0 if is_ser else -15.0
+        elif wants_movie_only:
+            score += 12.0 if not is_ser else -20.0
+
+        # Yil bo'yicha
+        if target_year:
+            if m_year == target_year:
+                score += 30.0
+            elif m_year.isdigit() and abs(int(m_year) - int(target_year)) <= 1:
+                score += 12.0
+
+        # Top / Yangi / Tasodifiy bonuslari
+        if wants_top:
+            score += min(views / 80.0, 20.0) + (imdb_f * 2.5)
+        if wants_new and m_year.isdigit() and int(m_year) >= 2023:
+            score += 20.0
+        if wants_random:
+            score += random.uniform(5.0, 25.0)
+
+        # Kichik sifat bonusi (ko'rilish va reyting)
+        score += min(views / 500.0, 4.0) + (imdb_f * 0.4)
+        scored.append((score, m))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    # Agar kuchli mosliklar bo'lsa shularni olamiz, aks holda eng sara top filmlardan
+    best = [m for sc, m in scored[:6] if sc >= 14.0]
+    if not best:
+        best = [m for _, m in scored[:5]]
+
+    # Agar tashqi Top-15 AI provayderi uchun API kalit ulangan bo'lsa, jonli LLM javobini sinaymiz!
+    llm_reply = ""
+    try:
+        ai_enabled = await db.get_setting("ai_enabled", "1")
+        if ai_enabled == "1":
+            active_prov = await db.get_setting("ai_active_provider", "gemini")
+            api_key = await db.get_setting(f"ai_key_{active_prov}", "")
+            if api_key:
+                cand_lines = "\n".join(
+                    f"- #{m['code']} {m['name']} ({m.get('year','')}, {m.get('genre','')}, IMDb {m.get('imdb','8.4')}, {'Serial' if m.get('is_serial') else 'Kino'}): {(m.get('caption') or '')[:110]}"
+                    for m in best[:5]
+                )
+                sys_lang = "rus tilida" if lang == "ru" else "sof o'zbek tilida"
+                prompt = (
+                    f"Sen Movie Land kinobotining aqlli 'Movie Land AI' yordamchisisan. "
+                    f"Foydalanuvchi savoli: «{raw_q}».\n"
+                    f"Bizning bazamizdagi eng mos kinolar:\n{cand_lines}\n\n"
+                    f"Faqat yuqoridagi bazadagi kinolardan 3-5 tasini tanlab, {sys_lang} qisqa, samimiy va chiroyli tavsiya yoz. "
+                    f"Har bir kino kodini (#kod) ko'rsat. HTML teglaridan faqat <b> va <i> ishlat, 750 belgidan oshmasin."
+                )
+                llm_reply = await asyncio.wait_for(call_ai_provider(active_prov, api_key, prompt), timeout=12)
+    except Exception:
+        llm_reply = ""
+
+    if llm_reply and len(llm_reply.strip()) >= 25:
+        reply_text = f"🤖 <b>Movie Land AI:</b>\n\n{llm_reply.strip()}"
+    else:
+        lines = []
+        if lang == "ru":
+            intro = f"🤖 <b>Movie Land AI</b> подобрал лучшие варианты по запросу <i>«{_html.escape(raw_q[:60])}»</i>:\n"
+            for i, m in enumerate(best[:5], 1):
+                badge = "📺 Сериал" if m.get("is_serial") else "🎬 Фильм"
+                short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:95]
+                cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
+                lines.append(
+                    f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
+                    f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
+                )
+            outro = "\n👇 <i>Нажмите на любой фильм ниже, чтобы сразу открыть и посмотреть!</i>"
+        else:
+            intro = f"🤖 <b>Movie Land AI</b> sizning <i>«{_html.escape(raw_q[:60])}»</i> so'rovingiz bo'yicha eng moslarini topdi:\n"
+            for i, m in enumerate(best[:5], 1):
+                badge = "📺 Serial" if m.get("is_serial") else "🎬 Kino"
+                short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:95]
+                cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
+                lines.append(
+                    f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
+                    f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
+                )
+            outro = "\n👇 <i>Pastdagi tugmalardan birini bosing — kino kartasi darhol ochiladi!</i>"
+        reply_text = intro + "\n" + "\n\n".join(lines) + "\n" + outro
+
+    return {"reply": reply_text, "movies": best[:5]}

@@ -237,6 +237,9 @@ class WebAdminState(StatesGroup):
     waiting_trailer_poster = State()
     waiting_trailer_video = State()
 
+class MovieLandAIState(StatesGroup):
+    chatting = State()
+
 _ARCHIVE_JOB_LOCK = asyncio.Lock()
 
 async def get_webapp_url() -> str:
@@ -874,7 +877,15 @@ async def send_movie_card(target, user_id: int, code: str, ep_num: int = None, e
             await db.update_movie_photo(movie["code"], poster_url)
             movie["photo_id"] = poster_url
 
-    active_ep = ep_num or _ACTIVE_EP_TRACKER.get((user_id, code))
+    # Yangi Poster Card ochilganda eski qolib ketgan video/qism holatini tozalaymiz,
+    # shunda «▶️ Kino ko'rish» bosilganda hech qachon «1-qism allaqachon ochilgan!» deb qotib qolmaydi!
+    if ep_num is None:
+        _ACTIVE_EP_TRACKER.pop((user_id, code), None)
+        _ACTIVE_USER_VIDEO.pop((user_id, code), None)
+        await db.clear_active_video_session(user_id, code)
+        active_ep = None
+    else:
+        active_ep = ep_num
     caption = format_movie_caption(movie, b_uname, current_ep=None, protect=protect, lang=lang)
     markup = kb.movie_poster_card_keyboard(
         movie=movie,
@@ -1033,8 +1044,14 @@ async def handle_archive_channel_new_post(message: Message):
     file_name = getattr(v_obj, "file_name", "") or ""
     video_height = getattr(v_obj, "height", 0) or 0
     raw_caption = message.caption or ""
+    cap_up = raw_caption.upper()
+    fn_low = file_name.lower()
 
-    if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz", ".json")):
+    if (
+        "BACKUP" in cap_up
+        or "JSON FORMAT (KINOLAR" in cap_up
+        or fn_low.endswith((".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz", ".json", ".sql", ".txt", ".py", ".log"))
+    ):
         return
 
     parsed = ai_service.parse_archive_caption(
@@ -1769,7 +1786,7 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
         missing_mids = list(range(last_db_id + 1, max_msg_id + 1))
 
     if not missing_mids:
-        await db.auto_promote_archive_serials()
+        await db.reparse_and_clean_archive_catalog()
         return {
             "ok": True,
             "checked": 0,
@@ -1826,7 +1843,13 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
                 continue
             mid, file_id, file_unique_id, file_name, v_height, raw_caption = res
 
-            if "AVTOMATIK HAFTALIK BACKUP" in raw_caption or file_name.endswith((".db", ".zip", ".tar", ".gz", ".json")):
+            cap_up = raw_caption.upper()
+            fn_low = file_name.lower()
+            if (
+                "BACKUP" in cap_up
+                or "JSON FORMAT (KINOLAR" in cap_up
+                or fn_low.endswith((".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz", ".json", ".sql", ".txt", ".py", ".log"))
+            ):
                 continue
 
             parsed = ai_service.parse_archive_caption(
@@ -1889,7 +1912,7 @@ async def scan_archive_channel_to_catalog(probe_chat_id: int = None, status_msg:
 
         await asyncio.sleep(0.25)
 
-    await db.auto_promote_archive_serials()
+    await db.reparse_and_clean_archive_catalog()
     return {
         "ok": True,
         "checked": checked,
@@ -4134,6 +4157,110 @@ async def send_movies_search_catalog(target, user_id: int, state: FSMContext, pa
     else:
         await target.answer(header, reply_markup=markup, parse_mode="HTML")
 
+
+# ===================== MOVIE LAND AI — AQLLI KINO YORDAMCHISI (/ai) =====================
+async def _open_movie_land_ai_screen(target, user_id: int, state: FSMContext):
+    lang = await db.get_user_lang(user_id)
+    await state.set_state(MovieLandAIState.chatting)
+    if lang == "ru":
+        text = (
+            "🤖 <b>MOVIE LAND AI — УМНЫЙ КИНО-ПОМОЩНИК</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "Напишите мне <b>жанр, настроение, год, сюжет или похожий фильм</b> — "
+            "я мгновенно найду лучшие фильмы и сериалы из нашей базы!\n\n"
+            "💡 <i>Примеры: «смешная комедия на вечер», «сериал про магию», «фильм 2024 года»</i>\n"
+            "👇 Выберите быстрый запрос или просто напишите сообщение:"
+        )
+    else:
+        text = (
+            "🤖 <b>MOVIE LAND AI — AQLLI KINO YORDAMCHISI</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "Menga <b>kayfiyatingiz, janr, yil, esingizda qolgan syujet yoki o'xshash kino nomini</b> yozing — "
+            "bazamizdagi eng sara kino va seriallarni bir zumda topib tavsiya qilaman!\n\n"
+            "💡 <i>Misollar: «kulgili oilaviy kino», «sehrgar haqida serial», «2024 jangari»</i>\n"
+            "👇 Tayyor tugmalardan birini bosing yoki istagan savolingizni yozib yuboring:"
+        )
+    markup = kb.movie_land_ai_inline(None, lang=lang)
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        except Exception:
+            await target.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=markup, parse_mode="HTML")
+
+
+async def _run_movie_land_ai_query(target_msg: Message, user_id: int, query_text: str):
+    lang = await db.get_user_lang(user_id)
+    movies = await db.get_all_movies(1000)
+    res = await ai_service.movie_land_ai_chat(query_text, movies, lang=lang)
+    markup = kb.movie_land_ai_inline(res.get("movies") or [], lang=lang)
+    await target_msg.answer(res["reply"], reply_markup=markup, parse_mode="HTML")
+
+
+@dp.message(Command("ai"))
+@dp.message(F.text.in_({"🤖 Movie Land AI", "Movie Land AI"}))
+async def cmd_movie_land_ai(message: Message, state: FSMContext):
+    await _open_movie_land_ai_screen(message, message.from_user.id, state)
+
+
+@dp.callback_query(F.data == "nav:ai")
+async def cb_nav_movie_land_ai(call: CallbackQuery, state: FSMContext):
+    await call.answer("🤖 Movie Land AI ishga tushdi!")
+    await _open_movie_land_ai_screen(call, call.from_user.id, state)
+
+
+@dp.callback_query(F.data.startswith("ai_quick:"))
+async def cb_movie_land_ai_quick(call: CallbackQuery, state: FSMContext):
+    q = call.data.split(":", 1)[1].strip()
+    await state.set_state(MovieLandAIState.chatting)
+    await call.answer("🤖 Movie Land AI qidirmoqda...")
+    await _run_movie_land_ai_query(call.message, call.from_user.id, q)
+
+
+@dp.callback_query(F.data == "exit_ai_mode")
+async def cb_exit_movie_land_ai(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await cb_back_main_menu(call, state)
+
+
+@dp.callback_query(F.data.startswith("open_mov:"))
+async def cb_open_movie_from_ai(call: CallbackQuery):
+    code = call.data.split(":", 1)[1].strip()
+    user_id = call.from_user.id
+    lang = await db.get_user_lang(user_id)
+    unsubscribed = await check_subscriptions(user_id)
+    if unsubscribed:
+        await call.message.answer(t("sub_first", lang), reply_markup=kb.subscription_keyboard(unsubscribed, code, lang=lang), parse_mode="HTML")
+        await call.answer()
+        return
+    await call.answer("🎬 Kino ochilmoqda...")
+    await send_movie_card(call, user_id, code)
+
+
+@dp.message(MovieLandAIState.chatting, F.text)
+async def msg_movie_land_ai_chat(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    if not txt:
+        return
+    # Agar foydalanuvchi buyruq yoki asosiy menyu tugmasini bossa, AI rejimdan chiqib odatiy oqimga o'tadi
+    if txt.startswith("/") or txt in b_vals("cancel") or txt in b_vals("user_menu"):
+        await state.clear()
+        if txt in b_vals("cancel") or txt in b_vals("user_menu"):
+            await switch_to_user_menu(message, state)
+        return
+    if txt.lstrip("#").isdigit():
+        await send_movie_card(message, message.from_user.id, txt.lstrip("#"))
+        return
+    wait_msg = await message.answer("🤖 <i>Movie Land AI o'ylamoqda...</i>", parse_mode="HTML")
+    try:
+        await _run_movie_land_ai_query(message, message.from_user.id, txt)
+    finally:
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
+
 @dp.message(F.text.in_(b_vals("search")))
 async def user_search_start(message: Message, state: FSMContext):
     await send_movies_search_catalog(message, message.from_user.id, state, page=1)
@@ -4711,55 +4838,47 @@ async def cb_watch_movie_or_episode(call: CallbackQuery):
 
     async with _USER_SWITCH_LOCK[(user_id, code)]:
         cur_active = _ACTIVE_EP_TRACKER.get((user_id, code))
-        if not cur_active:
-            sess = await db.get_active_session(user_id, code)
-            cur_active = sess.get("current_ep")
-
-        # Agar aynan shu qism hozir videoda ochiq bo'lsa
-        if cur_active == ep_num and (_ACTIVE_USER_VIDEO.get((user_id, code)) or (await db.get_active_session(user_id, code)).get("video_msg_id")):
-            await call.answer(f"▶️ {ep_num}-qism allaqachon ochilgan!")
-            return
-
-        _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
-
         b_uname = await get_bot_username()
         movie = await db.get_movie(code, increment_view=False)
+        if not movie:
+            await call.answer("❌ Kino topilmadi!", show_alert=True)
+            return
         episodes = await db.get_episodes(code)
         is_fav = await db.is_favorite(user_id, code)
         user_rating = await db.get_user_movie_rating(user_id, code)
         user_perms = await db.get_user_permissions(user_id)
 
-        # Poster Card IDsini eslab qolamiz va undagi tugmani ▶️ {ep_num} ga yangilaymiz
+        _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
+
+        # Poster Card IDsini eslab qolamiz va ko'p qismli bo'lsa tugmani ▶️ {ep_num} ga yangilaymiz
         if call.message:
             _ACTIVE_POSTER_MSG[(user_id, code)] = call.message.message_id
             await db.save_active_session(user_id, code, poster_msg_id=call.message.message_id, current_ep=ep_num)
-            try:
-                page = max(1, (ep_num - 1) // 30 + 1)
-                p_markup = kb.movie_poster_card_keyboard(
-                    movie=movie,
-                    bot_username=b_uname,
-                    is_fav=is_fav,
-                    episodes=episodes,
-                    user_perms=user_perms,
-                    lang=lang,
-                    user_rating=user_rating,
-                    ep_page=page,
-                    current_ep=ep_num
-                )
-                await call.message.edit_reply_markup(reply_markup=p_markup)
-            except Exception:
-                pass
+            if len(episodes) > 1:
+                try:
+                    page = max(1, (ep_num - 1) // 30 + 1)
+                    p_markup = kb.movie_poster_card_keyboard(
+                        movie=movie,
+                        bot_username=b_uname,
+                        is_fav=is_fav,
+                        episodes=episodes,
+                        user_perms=user_perms,
+                        lang=lang,
+                        user_rating=user_rating,
+                        ep_page=page,
+                        current_ep=ep_num
+                    )
+                    await call.message.edit_reply_markup(reply_markup=p_markup)
+                except Exception:
+                    pass
 
-        await call.answer("▶️ Видео..." if lang == "ru" else f"▶️ {ep_num}-qism...")
+        await call.answer("▶️ Видео юкланмоқда..." if lang == "ru" else (f"▶️ {ep_num}-qism yuklanmoqda..." if len(episodes) > 1 else "▶️ Kino yuborilmoqda..."))
 
-        # Agar pastda video xabari allaqachon mavjud bo'lsa, uni ham o'chirmasdan edit_media bilan yangilaymiz!
+        # 1 qismli kino bo'lsa — har doim toza yangi video yuboramiz (hech qachon 'allaqachon ochilgan' deb bloklamaymiz!)
+        # Ko'p qismli serialda esa boshqa qismga o'tilganda pastdagi videoni o'chirmasdan in-place edit_media bilan almashtiramiz!
         active_vid_id = _ACTIVE_USER_VIDEO.get((user_id, code))
-        if not active_vid_id:
-            sess = await db.get_active_session(user_id, code)
-            active_vid_id = sess.get("video_msg_id")
-
         refreshed = False
-        if active_vid_id:
+        if len(episodes) > 1 and active_vid_id and cur_active != ep_num:
             try:
                 protect_val = await db.get_setting("protect_content", "1")
                 protect = (str(protect_val) == "1")
@@ -4860,13 +4979,10 @@ async def cb_switch_episode(call: CallbackQuery):
 
     async with _USER_SWITCH_LOCK[(user_id, code)]:
         cur_active = _ACTIVE_EP_TRACKER.get((user_id, code))
-        if not cur_active:
-            sess = await db.get_active_session(user_id, code)
-            cur_active = sess.get("current_ep")
-
-        # Agar aynan shu qism hozir videoda ochiq bo'lsa
-        if cur_active == ep_num and (_ACTIVE_USER_VIDEO.get((user_id, code)) or (await db.get_active_session(user_id, code)).get("video_msg_id")):
-            await call.answer(f"▶️ {ep_num}-qism allaqachon ochilgan!")
+        active_vid_id = _ACTIVE_USER_VIDEO.get((user_id, code))
+        # Faqat aynan shu ochiq turgan video xabarining o'zidagi joriy qism bosilsagina qayta yuklamaymiz
+        if cur_active == ep_num and call.message and active_vid_id and call.message.message_id == active_vid_id:
+            await call.answer(f"▶️ {ep_num}-qism hozir ijro etilmoqda!")
             return
 
         _ACTIVE_EP_TRACKER[(user_id, code)] = ep_num
@@ -6392,10 +6508,11 @@ async def start_dummy_health_server():
                 "webapp_title": await db.get_setting("webapp_title", "Movie Land"),
                 "webapp_subtitle": await db.get_setting("webapp_subtitle", "O'zbek tilidagi kinolar • 24/7"),
                 "webapp_banner": await db.get_setting("webapp_banner", ""),
-                "vip_7_price": int(await db.get_setting("vip_7_price", config.DEFAULT_VIP_7_PRICE) or 7000),
-                "vip_30_price": int(await db.get_setting("vip_30_price", config.DEFAULT_VIP_30_PRICE) or 20000),
-                "vip_90_price": int(await db.get_setting("vip_90_price", config.DEFAULT_VIP_90_PRICE) or 30000),
-                "ref_reward_amount": int(await db.get_setting("ref_reward_amount", config.DEFAULT_REF_REWARD) or 1000),
+                "vip_7_price": int(await db.get_setting("vip_7_price", config.DEFAULT_VIP_7_PRICE) or config.DEFAULT_VIP_7_PRICE),
+                "vip_30_price": int(await db.get_setting("vip_30_price", config.DEFAULT_VIP_30_PRICE) or config.DEFAULT_VIP_30_PRICE),
+                "vip_90_price": int(await db.get_setting("vip_90_price", config.DEFAULT_VIP_90_PRICE) or config.DEFAULT_VIP_90_PRICE),
+                "ref_reward_amount": int(await db.get_setting("ref_reward_amount", config.DEFAULT_REF_REWARD) or config.DEFAULT_REF_REWARD),
+                "daily_reward_amount": int(await db.get_setting("daily_reward_amount", config.DEFAULT_DAILY_REWARD) or config.DEFAULT_DAILY_REWARD),
                 "bot_username": BOT_USERNAME or "movieeland_bot",
                 "group_url": config.COMMUNITY_GROUP_URL,
                 "channel_url": "https://t.me/movieee_land",
@@ -6447,6 +6564,45 @@ async def start_dummy_health_server():
             except Exception as e:
                 return web.json_response({"ok": False, "error": str(e)}, status=400)
 
+        async def handle_api_buy_vip(request):
+            try:
+                body = await request.json()
+                tg_u = verify_telegram_webapp_init_data(body.get("initData", ""))
+                if not tg_u:
+                    return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+                uid = int(tg_u.get("id", 0))
+                days = int(body.get("days", 30))
+                if days not in (7, 30, 90):
+                    return web.json_response({"ok": False, "error": "invalid_plan"}, status=400)
+                pkey = {7: "vip_7_price", 30: "vip_30_price", 90: "vip_90_price"}[days]
+                pdef = {7: config.DEFAULT_VIP_7_PRICE, 30: config.DEFAULT_VIP_30_PRICE, 90: config.DEFAULT_VIP_90_PRICE}[days]
+                price = int(await db.get_setting(pkey, pdef))
+                res = await db.buy_premium_with_balance(uid, days, price)
+                if not res.get("ok"):
+                    return web.json_response({"ok": False, "error": "insufficient_balance", "needed": res.get("needed", price), "price": price}, status=400)
+                asyncio.create_task(apply_vip_tag_across_ecosystem(bot, uid))
+                return web.json_response({
+                    "ok": True,
+                    "days": days,
+                    "price": price,
+                    "new_balance": res.get("new_balance", 0),
+                    "premium_until": res.get("premium_until", ""),
+                    "is_premium": True,
+                })
+            except Exception as e:
+                return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+        async def handle_api_ai_chat(request):
+            try:
+                body = await request.json()
+                q = str(body.get("query", "")).strip()
+                lang = "ru" if body.get("lang") == "ru" else "uz"
+                movies = await db.get_all_movies(1000)
+                res = await ai_service.movie_land_ai_chat(q, movies, lang=lang)
+                return web.json_response({"ok": True, "reply": res["reply"], "movies": res["movies"]})
+            except Exception as e:
+                return web.json_response({"ok": False, "error": str(e)}, status=400)
+
         async def handle_api_watch(request):
             try:
                 body = await request.json()
@@ -6468,6 +6624,8 @@ async def start_dummy_health_server():
         app.router.add_get("/api/bootstrap", handle_api_bootstrap)
         app.router.add_post("/api/auth", handle_api_auth)
         app.router.add_post("/api/toggle_fav", handle_api_toggle_fav)
+        app.router.add_post("/api/buy_vip", handle_api_buy_vip)
+        app.router.add_post("/api/ai_chat", handle_api_ai_chat)
         app.router.add_post("/api/watch", handle_api_watch)
         app.router.add_get("/health", handle_ping)
         runner = web.AppRunner(app)

@@ -178,6 +178,158 @@
     }
     .bonus-pill:hover { background: rgba(229, 72, 59, 0.25); transform: translateY(-1px); }
 
+    .ai-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1.5px solid rgba(139, 92, 246, 0.55);
+      background: rgba(139, 92, 246, 0.16);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 700;
+      transition: transform 0.15s ease, background 0.15s ease;
+      white-space: nowrap;
+    }
+    .ai-pill:hover { background: rgba(139, 92, 246, 0.28); transform: translateY(-1px); }
+
+    /* Movie Land AI Chat Modal */
+    .ai-modal-sheet {
+      display: flex;
+      flex-direction: column;
+      height: 82vh;
+      max-height: 680px;
+      overflow: hidden;
+    }
+    .ai-header {
+      padding: 18px 50px 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(229, 72, 59, 0.12));
+    }
+    .ai-header h3 { font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+    .ai-header p { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .ai-chips {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ai-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .ai-msg {
+      max-width: 88%;
+      padding: 11px 14px;
+      border-radius: 16px;
+      font-size: 13.5px;
+      line-height: 1.48;
+      white-space: pre-line;
+    }
+    .ai-msg.bot {
+      align-self: flex-start;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 5px;
+    }
+    .ai-msg.user {
+      align-self: flex-end;
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 5px;
+    }
+    .ai-recs-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 4px;
+    }
+    .ai-mini-card {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      padding: 8px;
+      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.16s, transform 0.15s;
+    }
+    .ai-mini-card:hover { border-color: var(--accent-border); transform: translateY(-1px); }
+    .ai-mini-card img {
+      width: 42px;
+      height: 60px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--card-2);
+      flex-shrink: 0;
+    }
+    .ai-mini-info { min-width: 0; flex: 1; }
+    .ai-mini-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ai-mini-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .ai-input-bar {
+      display: flex;
+      gap: 8px;
+      padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+      border-top: 1px solid var(--border);
+      background: var(--bg-elev);
+    }
+    .ai-input-bar input {
+      flex: 1;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border-strong);
+      color: var(--text);
+      padding: 0 13px;
+      font-size: 13.5px;
+      outline: none;
+    }
+    .ai-input-bar input:focus { border-color: var(--accent-border); }
+    .ai-send-btn {
+      height: 44px;
+      padding: 0 16px;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 800;
+      font-size: 13.5px;
+      flex-shrink: 0;
+    }
+    .vip-active-box {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .vip-active-title { font-size: 15.5px; font-weight: 800; color: #34d399; margin-bottom: 4px; }
+    .vip-active-sub { font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+    .vip-notice {
+      font-size: 12.5px;
+      padding: 10px 12px;
+      border-radius: 11px;
+      margin-bottom: 11px;
+      display: none;
+      line-height: 1.45;
+    }
+    .vip-notice.err { display: block; background: rgba(239, 68, 68, 0.14); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .vip-notice.ok { display: block; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
+
     .desktop-nav {
       display: none;
       align-items: center;
@@ -1419,6 +1571,9 @@
         <button class="bonus-pill" onclick="switchView('profile', 'referral')">
           <span>🎁</span><span>Bonus</span>
         </button>
+        <button class="ai-pill" onclick="openAiModal()">
+          <span>🤖</span><span>AI</span>
+        </button>
       </div>
 
       <nav class="desktop-nav" aria-label="Asosiy navigatsiya">
@@ -1635,37 +1790,58 @@
           </div>
         </div>
 
-        <!-- Premium Card -->
+        <!-- Premium Card (100% Bot-Synced Prices & Active Status) -->
         <div class="p-card prem-card">
           <div class="prem-head">
-            <div class="prem-title">💎 Premium</div>
-            <div class="prem-from" id="premFromPrice">7 000 so'm dan boshlab</div>
+            <div class="prem-title">💎 Premium (VIP)</div>
+            <div class="prem-from" id="premFromPrice">Yuklanmoqda...</div>
           </div>
-          <div class="prem-perks">
-            <div>🚫 Kanallarga a'zo bo'lish shart emas</div>
-            <div>🎯 Reklamasiz foydalanish</div>
-            <div>⚡ Tezkor qidiruv va yuklash</div>
+
+          <!-- Active VIP Panel (shown when user already has VIP!) -->
+          <div id="vipActiveWrap" style="display:none;">
+            <div class="vip-active-box">
+              <div class="vip-active-title" id="vipActiveTitle">✅ Premium obunangiz faol!</div>
+              <div class="vip-active-sub" id="vipActiveSub"></div>
+            </div>
+            <button class="btn-outline" style="width:100%;" id="vipExtendToggleBtn" onclick="toggleVipExtendPlans()">
+              🔄 VIP muddatini uzaytirish
+            </button>
           </div>
-          <div class="prem-plans">
-            <div class="plan-box" onclick="selectPlan(this)">
-              <div class="plan-dur">1 hafta</div>
-              <div class="plan-price" id="price7">7 000</div>
-              <div class="plan-unit">so'm</div>
+
+          <!-- Buy / Extend VIP Plans -->
+          <div id="vipBuyWrap">
+            <div class="prem-perks">
+              <div>🚫 Kanallarga a'zo bo'lish shart emas</div>
+              <div>🎯 Reklamasiz foydalanish</div>
+              <div>⚡ Tezkor qidiruv va kuniga 5 ta buyurtma</div>
             </div>
-            <div class="plan-box active" onclick="selectPlan(this)">
-              <div class="plan-dur">1 oy</div>
-              <div class="plan-price" id="price30">20 000</div>
-              <div class="plan-unit">so'm</div>
+            <div class="prem-plans">
+              <div class="plan-box" data-days="7" onclick="selectPlan(this, 7)">
+                <div class="plan-dur">7 kun</div>
+                <div class="plan-price" id="price7">—</div>
+                <div class="plan-unit">so'm</div>
+              </div>
+              <div class="plan-box active" data-days="30" onclick="selectPlan(this, 30)">
+                <div class="plan-dur">30 kun</div>
+                <div class="plan-price" id="price30">—</div>
+                <div class="plan-unit">so'm</div>
+              </div>
+              <div class="plan-box" data-days="90" onclick="selectPlan(this, 90)">
+                <div class="plan-dur">90 kun</div>
+                <div class="plan-price" id="price90">—</div>
+                <div class="plan-unit">so'm</div>
+              </div>
             </div>
-            <div class="plan-box" onclick="selectPlan(this)">
-              <div class="plan-dur">3 oy</div>
-              <div class="plan-price" id="price90">30 000</div>
-              <div class="plan-unit">so'm</div>
+            <div id="vipNotice" class="vip-notice"></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button class="btn-primary-full" id="vipBuyBalBtn" onclick="buyVipFromWebApp()">
+                💎 Balansdan sotib olish (30 kun)
+              </button>
+              <button class="btn-outline" style="width:100%;" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername + '?start=vip')">
+                💳 Karta orqali to'lash (Botda)
+              </button>
             </div>
           </div>
-          <button class="btn-primary-full" onclick="openTelegramUrl('https://t.me/' + STATE.botUsername + '?start=vip')">
-            💎 Premium olish
-          </button>
         </div>
 
         <!-- Referral Card -->
@@ -1682,6 +1858,10 @@
         <!-- Settings & Links Card -->
         <div class="p-card">
           <div class="p-menu-list">
+            <div class="p-menu-row" onclick="openAiModal()">
+              <div class="p-menu-left"><span>🤖</span><span>Movie Land AI</span></div>
+              <div class="p-menu-right"><span style="color:var(--accent);font-weight:700;">Yordamchi</span><span>›</span></div>
+            </div>
             <div class="p-menu-row" onclick="switchView('favorites')">
               <div class="p-menu-left"><span>❤️</span><span>Sevimli kinolar</span></div>
               <div class="p-menu-right"><span id="profFavCount">0</span><span>›</span></div>
@@ -1779,6 +1959,31 @@
     </div>
   </div>
 
+  <!-- Movie Land AI Chat Modal -->
+  <div id="aiModal" class="modal-backdrop" onclick="if(event.target===this) closeAiModal()">
+    <div class="modal-sheet ai-modal-sheet">
+      <button class="modal-close" onclick="closeAiModal()">×</button>
+      <div class="ai-header">
+        <h3><span>🤖</span><span>Movie Land AI</span></h3>
+        <p>Kayfiyatingiz, janr yoki syujetni yozing — eng mos kinolarni topib beraman</p>
+      </div>
+      <div class="ai-chips no-scroll">
+        <button class="pill-chip" onclick="sendAiQuick('Eng zor jangari kino tavsiya qil')">🔥 Eng zo'r jangari</button>
+        <button class="pill-chip" onclick="sendAiQuick('Kulgili komediya kino topib ber')">😂 Kulgili komediya</button>
+        <button class="pill-chip" onclick="sendAiQuick('Zor serial tavsiya qil')">📺 Zo'r seriallar</button>
+        <button class="pill-chip" onclick="sendAiQuick('Fantastika va sehrgar haqida kino')">🚀 Fantastika</button>
+        <button class="pill-chip" onclick="sendAiQuick('Oilaviy multfilm topib ber')">🧸 Multfilmlar</button>
+      </div>
+      <div class="ai-messages" id="aiMessages">
+        <div class="ai-msg bot">Assalomu alaykum! Men — <b>Movie Land AI</b>. Qanday kino yoki serial izlayapsiz? Janr, yil, kayfiyat yoki syujetni yozing — bazamizdan eng saralarini topib beraman! 🎬</div>
+      </div>
+      <form class="ai-input-bar" onsubmit="handleAiSubmit(event)">
+        <input id="aiInput" type="text" placeholder="Masalan: kulgili oilaviy kino yoki sehrgar serial..." autocomplete="off" />
+        <button type="submit" class="ai-send-btn">Yuborish</button>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast"></div>
 
@@ -1801,10 +2006,10 @@
         webapp_title: 'Movie Land',
         webapp_subtitle: "O'zbek tilidagi kinolar • 24/7",
         webapp_banner: '',
-        vip_7_price: 7000,
-        vip_30_price: 20000,
-        vip_90_price: 30000,
-        ref_reward_amount: 1000,
+        vip_7_price: 10000,
+        vip_30_price: 25000,
+        vip_90_price: 60000,
+        ref_reward_amount: 1500,
       },
       movies: [],
       genres: [],
@@ -1816,6 +2021,8 @@
       searchFilter: 'all',
       modalMovie: null,
       modalEp: null,
+      selectedPlanDays: 30,
+      showVipExtend: false,
     };
 
     const GENRE_THEMES = [
@@ -2348,9 +2555,77 @@
     }
 
     // ==================== PROFILE VIEW ====================
-    function selectPlan(el) {
+    function selectPlan(el, days) {
+      STATE.selectedPlanDays = Number(days || 30);
       document.querySelectorAll('.plan-box').forEach(b => b.classList.remove('active'));
-      el.classList.add('active');
+      if (el) el.classList.add('active');
+      updateVipBuyButtonLabel();
+    }
+
+    function updateVipBuyButtonLabel() {
+      const btn = document.getElementById('vipBuyBalBtn');
+      if (!btn) return;
+      const d = STATE.selectedPlanDays || 30;
+      const priceMap = {
+        7: Number(STATE.config.vip_7_price || 10000),
+        30: Number(STATE.config.vip_30_price || 25000),
+        90: Number(STATE.config.vip_90_price || 60000),
+      };
+      const pr = priceMap[d] || priceMap[30];
+      const act = STATE.user && STATE.user.is_premium ? 'uzaytirish' : 'sotib olish';
+      btn.textContent = `💎 Balansdan ${act} (${d} kun — ${fmtNum(pr)} so'm)`;
+    }
+
+    function toggleVipExtendPlans() {
+      STATE.showVipExtend = !STATE.showVipExtend;
+      renderProfile();
+    }
+
+    async function buyVipFromWebApp() {
+      const notice = document.getElementById('vipNotice');
+      notice.className = 'vip-notice';
+      notice.textContent = '';
+
+      if (!tg || !tg.initData) {
+        openTelegramUrl('https://t.me/' + STATE.botUsername + '?start=vip');
+        return;
+      }
+
+      const btn = document.getElementById('vipBuyBalBtn');
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Tekshirilmoqda...';
+
+      const endpoint = STATE.apiMode === 'php' ? 'api.php?action=buy_vip' : '/api/buy_vip';
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: tg.initData, days: STATE.selectedPlanDays }),
+        });
+        const j = await r.json();
+        if (j && j.ok) {
+          if (!STATE.user) STATE.user = {};
+          STATE.user.is_premium = true;
+          STATE.user.balance = j.new_balance;
+          STATE.user.premium_until = j.premium_until;
+          STATE.showVipExtend = false;
+          renderProfile();
+          showToast(`🎉 ${j.days} kunlik Premium (VIP) faollashtirildi!`);
+        } else if (j && j.error === 'insufficient_balance') {
+          notice.className = 'vip-notice err';
+          notice.textContent = `❌ Balansingizda mablag' yetarli emas! Yana ${fmtNum(j.needed)} so'm kerak. Do'stlarni taklif qiling yoki pastdagi karta orqali to'lov tugmasini bosing.`;
+        } else {
+          notice.className = 'vip-notice err';
+          notice.textContent = '⚠️ Xaridni bot ichida yakunlang — pastdagi «Karta orqali to\'lash» tugmasini bosing.';
+        }
+      } catch (e) {
+        notice.className = 'vip-notice err';
+        notice.textContent = '⚠️ Aloqa xatosi. Qaytadan urinib ko\'ring.';
+      } finally {
+        btn.disabled = false;
+        updateVipBuyButtonLabel();
+      }
     }
 
     function renderProfile() {
@@ -2363,6 +2638,7 @@
       const balance = u ? Number(u.balance || 0) : 0;
       const refs = u ? Number(u.ref_count || 0) : 0;
       const uid = u && u.id ? u.id : '';
+      const isPrem = Boolean(u && u.is_premium);
 
       document.getElementById('profName').textContent = name;
       document.getElementById('profHandle').textContent = handle;
@@ -2378,23 +2654,43 @@
       }
 
       const vipBadge = document.getElementById('profVipTag');
-      if (u && u.is_premium) {
+      if (isPrem) {
         vipBadge.textContent = `💎 VIP [${u.vip_tag || 'PREMIUM'}]`;
         vipBadge.style.display = 'inline-block';
       } else {
         vipBadge.style.display = 'none';
       }
 
-      const p7 = Number(cfg.vip_7_price || 7000);
-      const p30 = Number(cfg.vip_30_price || 20000);
-      const p90 = Number(cfg.vip_90_price || 30000);
-      const refBonus = Number(cfg.ref_reward_amount || 1000);
+      const p7 = Number(cfg.vip_7_price || 10000);
+      const p30 = Number(cfg.vip_30_price || 25000);
+      const p90 = Number(cfg.vip_90_price || 60000);
+      const refBonus = Number(cfg.ref_reward_amount || 1500);
 
-      document.getElementById('premFromPrice').textContent = `${fmtNum(p7)} so'm dan boshlab`;
       document.getElementById('price7').textContent = fmtNum(p7);
       document.getElementById('price30').textContent = fmtNum(p30);
       document.getElementById('price90').textContent = fmtNum(p90);
       document.getElementById('refRewardText').textContent = `Har bir do'stingiz uchun ${fmtNum(refBonus)} so'm bonus balansingizga tushadi`;
+
+      const activeWrap = document.getElementById('vipActiveWrap');
+      const buyWrap = document.getElementById('vipBuyWrap');
+      const premFrom = document.getElementById('premFromPrice');
+
+      if (isPrem) {
+        const untilTxt = u.premium_until ? fmtUzDate(u.premium_until) : 'Cheksiz';
+        premFrom.textContent = `Faol (${untilTxt} gacha)`;
+        document.getElementById('vipActiveTitle').textContent = `✅ Premium faol • [${u.vip_tag || 'PREMIUM'}]`;
+        document.getElementById('vipActiveSub').textContent = `Amal qilish muddati: ${untilTxt} gacha. Majburiy obunasiz va reklamasiz barcha VIP imtiyozlar siz uchun yoqilgan!`;
+        activeWrap.style.display = 'block';
+        buyWrap.style.display = STATE.showVipExtend ? 'block' : 'none';
+        document.getElementById('vipExtendToggleBtn').textContent = STATE.showVipExtend
+          ? '▲ Tariflarni yashirish'
+          : '🔄 VIP muddatini uzaytirish';
+      } else {
+        premFrom.textContent = `${fmtNum(p7)} so'm dan boshlab`;
+        activeWrap.style.display = 'none';
+        buyWrap.style.display = 'block';
+      }
+      updateVipBuyButtonLabel();
 
       const refLink = uid
         ? `t.me/${STATE.botUsername}?start=ref_${uid}`
@@ -2603,8 +2899,85 @@
       window.open(url, '_blank', 'noopener');
     }
 
-    // ==================== INIT ====================
-    (async function initApp() {
+    // ==================== MOVIE LAND AI MODAL ====================
+    function openAiModal() {
+      document.getElementById('aiModal').classList.add('open');
+      setTimeout(() => {
+        const inp = document.getElementById('aiInput');
+        if (inp) inp.focus();
+      }, 120);
+    }
+
+    function closeAiModal() {
+      document.getElementById('aiModal').classList.remove('open');
+    }
+
+    function sendAiQuick(text) {
+      document.getElementById('aiInput').value = text;
+      submitAiQuery(text);
+    }
+
+    function handleAiSubmit(e) {
+      e.preventDefault();
+      const inp = document.getElementById('aiInput');
+      const q = (inp.value || '').trim();
+      if (!q) return;
+      inp.value = '';
+      submitAiQuery(q);
+    }
+
+    function openMovieFromAi(code) {
+      closeAiModal();
+      openMovieModal(code);
+    }
+
+    async function submitAiQuery(q) {
+      const box = document.getElementById('aiMessages');
+      const uDiv = document.createElement('div');
+      uDiv.className = 'ai-msg user';
+      uDiv.textContent = q;
+      box.appendChild(uDiv);
+
+      const loadDiv = document.createElement('div');
+      loadDiv.className = 'ai-msg bot';
+      loadDiv.textContent = '🤖 Movie Land AI qidirmoqda...';
+      box.appendChild(loadDiv);
+      box.scrollTop = box.scrollHeight;
+
+      const endpoint = STATE.apiMode === 'php' ? 'api.php?action=ai_chat' : '/api/ai_chat';
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, lang: 'uz' }),
+        });
+        const j = await r.json();
+        loadDiv.textContent = (j && j.reply) ? String(j.reply).replace(/<[^>]+>/g, '') : '🤖 Mos kinolar topildi:';
+        if (j && Array.isArray(j.movies) && j.movies.length) {
+          const grid = document.createElement('div');
+          grid.className = 'ai-recs-grid';
+          grid.innerHTML = j.movies.slice(0, 6).map(m => {
+            const pSrc = m.photo_id || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="42" height="60"><rect width="100%25" height="100%25" fill="%231c1f2b"/></svg>';
+            return `
+              <button class="ai-mini-card" data-code="${esc(m.code)}" onclick="openMovieFromAi(this.dataset.code)">
+                <img src="${esc(pSrc)}" alt="" loading="lazy" />
+                <div class="ai-mini-info">
+                  <div class="ai-mini-title">${esc(m.name)}</div>
+                  <div class="ai-mini-meta">#${esc(m.code)} • ⭐ ${esc(m.imdb || '8.4')} • ${esc(m.year || '')}</div>
+                </div>
+              </button>
+            `;
+          }).join('');
+          box.appendChild(grid);
+        }
+      } catch (e) {
+        loadDiv.textContent = '⚠️ AI bilan bog\'lanishda xato yuz berdi. Qaytadan urinib ko\'ring.';
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // ==================== INIT & LIVE SYNC ====================
+    async function refreshAllLiveData() {
       const data = await fetchBootstrap();
       if (data.config) STATE.config = Object.assign(STATE.config, data.config);
       if (data.config && data.config.bot_username) STATE.botUsername = data.config.bot_username;
@@ -2620,7 +2993,19 @@
       renderHome();
       renderProfile();
       await authenticateTelegramUser();
-    })();
+    }
+
+    refreshAllLiveData();
+
+    // Botdan WebApp ga qaytilganda VIP status, balans va narxlarni avtomatik jonli yangilash!
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        refreshAllLiveData();
+      }
+    });
+    window.addEventListener('focus', () => {
+      authenticateTelegramUser();
+    });
   </script>
 </body>
 </html>
