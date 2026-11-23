@@ -1080,87 +1080,194 @@ async def enrich_movie_metadata_with_ai(
     return parsed
 
 
-async def call_ai_provider(provider_key: str, api_key: str, prompt: str) -> str:
-    """Tanlangan AI provayderga asinxron so'rov yuborish."""
+def _sanitize_ai_html(raw: str) -> str:
+    """AI javobidagi Markdown va ortiqcha teglarni Telegram HTML uchun 100% xavfsiz formatga o'giradi."""
+    if not raw:
+        return ""
+    txt = raw.strip()
+    # Markdown sarlavha va bold/italicni toza Telegram HTML ga o'girish
+    txt = re.sub(r"^#{1,6}\s*(.+)$", r"<b>\1</b>", txt, flags=re.MULTILINE)
+    txt = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", txt)
+    txt = re.sub(r"__(.+?)__", r"<b>\1</b>", txt)
+    txt = re.sub(r"(?<!\*)\*([^\*\n]+?)\*(?!\*)", r"<i>\1</i>", txt)
+    txt = re.sub(r"`([^`\n]+?)`", r"<code>\1</code>", txt)
+    # Telegram qo'llamaydigan HTML teglarni olib tashlash (faqat b, i, code, blockquote qoladi)
+    allowed_re = re.compile(r"</?(?:b|i|u|s|code|pre|blockquote)\b[^>]*>", re.IGNORECASE)
+    parts = []
+    pos = 0
+    for m in allowed_re.finditer(txt):
+        chunk = txt[pos:m.start()]
+        chunk = chunk.replace("<", "&lt;").replace(">", "&gt;")
+        parts.append(chunk)
+        parts.append(m.group(0))
+        pos = m.end()
+    tail = txt[pos:].replace("<", "&lt;").replace(">", "&gt;")
+    parts.append(tail)
+    out = "".join(parts)
+    # Yopilmagan b/i/code teglar Telegram parse xatosi bermasligi uchun tekshirish
+    for tag in ("b", "i", "code"):
+        opens = len(re.findall(rf"<{tag}>", out, flags=re.IGNORECASE))
+        closes = len(re.findall(rf"</{tag}>", out, flags=re.IGNORECASE))
+        if opens > closes:
+            out += f"</{tag}>" * (opens - closes)
+        elif closes > opens:
+            out = re.sub(rf"</?{tag}>", "", out, flags=re.IGNORECASE)
+    return out.strip()
+
+
+async def call_ai_provider_chat(
+    provider_key: str,
+    api_key: str,
+    system_prompt: str,
+    user_message: str,
+    history: list = None,
+    max_tokens: int = 1024,
+    temperature: float = 0.65
+) -> dict:
+    """
+    Professional ko'p-navbatli (multi-turn) AI chat chaqiruvi:
+    - Google Gemini uchun eng kuchli kaskad: gemini-2.5-flash -> gemini-2.5-pro -> gemini-2.5-flash-lite -> gemini-2.0-flash
+      (AQ. kalitlar uchun Vertex AI Express endpointi ham avtomatik sinab ko'riladi!)
+    - OpenAI, Claude, DeepSeek, Grok, Groq, Mistral, Perplexity, OpenRouter va b. to'liq qo'llab-quvvatlanadi.
+    Qaytaradi: {"ok": bool, "text": str, "model": str, "error": str}
+    """
     prov = config.TOP_15_AI_PROVIDERS.get(provider_key)
     if not prov or not api_key:
-        return ""
+        return {"ok": False, "text": "", "model": "", "error": "API kalit kiritilmagan"}
 
     p_type = prov["type"]
     model = prov["model"]
-    timeout = aiohttp.ClientTimeout(total=15)
+    history = history or []
+    session = await _get_http_session()
+    timeout = aiohttp.ClientTimeout(total=22)
+    last_err = ""
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            if p_type == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.5, "maxOutputTokens": 250}
-                }
-                async with session.post(url, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    return ""
+        if p_type == "gemini":
+            models_to_try = [model] + [m for m in prov.get("fallback_models", ["gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-2.0-flash"]) if m != model]
+            contents = []
+            for h_role, h_text in history[-10:]:
+                g_role = "model" if h_role in ("assistant", "model") else "user"
+                contents.append({"role": g_role, "parts": [{"text": str(h_text)[:1200]}]})
+            contents.append({"role": "user", "parts": [{"text": user_message}]})
 
-            elif p_type == "anthropic":
-                headers = {
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                }
-                payload = {
-                    "model": model,
-                    "max_tokens": 250,
-                    "messages": [{"role": "user", "content": prompt}]
-                }
-                async with session.post(prov["url"], headers=headers, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["content"][0]["text"].strip()
-                    return ""
+            payload = {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens,
+                },
+            }
+            if system_prompt:
+                payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-            elif p_type == "cohere":
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}]
-                }
-                async with session.post(prov["url"], headers=headers, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["message"]["content"][0]["text"].strip()
-                    return ""
+            # AI Studio endpointlari (+ AQ. Vertex Express kaliti uchun aiplatform endpointi)
+            bases = ["https://generativelanguage.googleapis.com/v1beta/models"]
+            if api_key.startswith("AQ."):
+                bases.append("https://aiplatform.googleapis.com/v1/publishers/google/models")
 
-            else:
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "Sen professional kino muharririsan. Faqat o'zbek tilida, imlo xatolarsiz, qisqa va qiziqarli javob qaytarasan."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.5,
-                    "max_tokens": 250
-                }
-                async with session.post(prov["url"], headers=headers, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["choices"][0]["message"]["content"].strip()
-                    return ""
+            for base_ep in bases:
+                billing_blocked = False
+                for m_name in models_to_try:
+                    url = f"{base_ep}/{m_name}:generateContent?key={api_key}"
+                    try:
+                        async with session.post(url, json=payload, timeout=timeout) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                cands = data.get("candidates") or []
+                                if cands:
+                                    parts = (cands[0].get("content") or {}).get("parts") or []
+                                    text_out = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                                    if text_out:
+                                        return {"ok": True, "text": text_out, "model": m_name, "error": ""}
+                            else:
+                                err_raw = (await resp.text())[:260]
+                                last_err = f"HTTP {resp.status}: {err_raw}"
+                                if resp.status == 403 and ("free tier is not available" in err_raw.lower() or "billing" in err_raw.lower() or "has not been used" in err_raw.lower()):
+                                    billing_blocked = True
+                                    break
+                    except Exception as e:
+                        last_err = str(e)
+                if billing_blocked:
+                    continue
+            return {"ok": False, "text": "", "model": model, "error": last_err or "Gemini javob bermadi"}
+
+        elif p_type == "anthropic":
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            }
+            msgs = []
+            for h_role, h_text in history[-10:]:
+                msgs.append({"role": "assistant" if h_role in ("assistant", "model") else "user", "content": str(h_text)[:1200]})
+            msgs.append({"role": "user", "content": user_message})
+            payload = {"model": model, "max_tokens": max_tokens, "messages": msgs}
+            if system_prompt:
+                payload["system"] = system_prompt
+            async with session.post(prov["url"], headers=headers, json=payload, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    txt = data["content"][0]["text"].strip()
+                    return {"ok": True, "text": txt, "model": model, "error": ""}
+                last_err = f"HTTP {resp.status}: {(await resp.text())[:200]}"
+                return {"ok": False, "text": "", "model": model, "error": last_err}
+
+        elif p_type == "cohere":
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            msgs = []
+            if system_prompt:
+                msgs.append({"role": "system", "content": system_prompt})
+            for h_role, h_text in history[-10:]:
+                msgs.append({"role": "assistant" if h_role in ("assistant", "model") else "user", "content": str(h_text)[:1200]})
+            msgs.append({"role": "user", "content": user_message})
+            payload = {"model": model, "messages": msgs}
+            async with session.post(prov["url"], headers=headers, json=payload, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    txt = data["message"]["content"][0]["text"].strip()
+                    return {"ok": True, "text": txt, "model": model, "error": ""}
+                last_err = f"HTTP {resp.status}: {(await resp.text())[:200]}"
+                return {"ok": False, "text": "", "model": model, "error": last_err}
+
+        else:
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            msgs = []
+            if system_prompt:
+                msgs.append({"role": "system", "content": system_prompt})
+            for h_role, h_text in history[-10:]:
+                msgs.append({"role": "assistant" if h_role in ("assistant", "model") else "user", "content": str(h_text)[:1200]})
+            msgs.append({"role": "user", "content": user_message})
+            payload = {
+                "model": model,
+                "messages": msgs,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            async with session.post(prov["url"], headers=headers, json=payload, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    txt = data["choices"][0]["message"]["content"].strip()
+                    return {"ok": True, "text": txt, "model": model, "error": ""}
+                last_err = f"HTTP {resp.status}: {(await resp.text())[:200]}"
+                return {"ok": False, "text": "", "model": model, "error": last_err}
     except Exception as e:
         logging.warning(f"AI so'rovida xatolik ({provider_key}): {e}")
-        return ""
+        return {"ok": False, "text": "", "model": model, "error": str(e)}
+
+
+async def call_ai_provider(provider_key: str, api_key: str, prompt: str) -> str:
+    """Orqaga mos (legacy) qisqa tavsif chaqiruvi — endi Gemini 2.5 Flash kaskadi orqali ishlaydi."""
+    res = await call_ai_provider_chat(
+        provider_key=provider_key,
+        api_key=api_key,
+        system_prompt="Sen professional kino muharririsan. Faqat o'zbek tilida, imlo xatolarsiz, qisqa va qiziqarli javob qaytarasan.",
+        user_message=prompt,
+        history=[],
+        max_tokens=320,
+        temperature=0.5,
+    )
+    return res["text"] if res.get("ok") else ""
 
 
 async def process_movie_description_with_ai(
@@ -2209,7 +2316,16 @@ async def find_movie_poster_tmdb(name: str, year: str = "", is_serial: bool = Fa
     return ""
 
 
-# ===================== MOVIE LAND AI — AQLLI KINO TAVSIYA VA QIDIRUV YORDAMCHISI =====================
+# ===================== MOVIE LAND AI — PROFESSIONAL GEMINI 2.5 CONVERSATIONAL ASSISTANT =====================
+_AI_CONVERSATION_MEMORY: dict[int, list[tuple[str, str]]] = {}
+_AI_LAST_SHOWN_CODES: dict[int, set[str]] = {}
+
+
+def clear_movie_land_ai_memory(user_id: int):
+    _AI_CONVERSATION_MEMORY.pop(user_id, None)
+    _AI_LAST_SHOWN_CODES.pop(user_id, None)
+
+
 _AI_INTENT_GENRES = {
     "jangari": ["jangari", "urush", "otishma", "jang", "qasos", "politsiya", "snayper", "maxsus", "boevik", "боевик", "экшн", "action", "superqahramon", "marvel", "dc"],
     "komediya": ["komediya", "kulgili", "kulgi", "hazil", "quvnoq", "xursand", "комедия", "смешной", "смешная", "веселый", "comedy", "prikol"],
@@ -2231,49 +2347,307 @@ _AI_STOPWORDS = {
 }
 
 
-async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = "uz") -> dict:
-    """
-    Movie Land AI — foydalanuvchi so'rovini (kayfiyat, janr, syujet, yil, o'xshash kino, serial)
-    tushunib, jonli bazadagi eng mos kinolarni saralab, do'stona javob qaytaradi!
-    """
+async def _gather_live_bot_knowledge(user_id: int = 0) -> tuple[dict, dict]:
+    """Botning barcha jonli ma'lumotlarini (VIP narxlar, bonus, karta, statistika, user profili) yig'adi."""
+    vip_7 = int(await db.get_setting("vip_7_price", config.DEFAULT_VIP_7_PRICE) or 10000)
+    vip_30 = int(await db.get_setting("vip_30_price", config.DEFAULT_VIP_30_PRICE) or 25000)
+    vip_90 = int(await db.get_setting("vip_90_price", config.DEFAULT_VIP_90_PRICE) or 60000)
+    daily_rew = int(await db.get_setting("daily_reward_amount", config.DEFAULT_DAILY_REWARD) or 1000)
+    ref_rew = int(await db.get_setting("ref_reward_amount", config.DEFAULT_REF_REWARD) or 1500)
+    free_lim = await db.get_setting("free_order_limit", "2")
+    vip_lim = await db.get_setting("premium_order_limit", "5")
+    card_info = await db.get_setting("payment_card_info", config.DEFAULT_PAYMENT_CARD)
+    webapp_url = await db.get_setting("webapp_url", config.WEBAPP_URL)
+    stats = await db.get_full_stats()
+
+    bot_ctx = {
+        "bot_username": "movieeland_bot",
+        "channel": "@movieee_land",
+        "group": "@movieeland_group",
+        "owner": "Asliddin (@asliddin_akk)",
+        "webapp_url": webapp_url,
+        "vip_7": vip_7,
+        "vip_30": vip_30,
+        "vip_90": vip_90,
+        "daily_rew": daily_rew,
+        "ref_rew": ref_rew,
+        "free_lim": free_lim,
+        "vip_lim": vip_lim,
+        "card_info": card_info,
+        "total_movies": stats.get("total_movies", 0),
+        "total_serials": stats.get("total_serials", 0),
+        "total_episodes": stats.get("total_episodes", 0),
+        "total_users": stats.get("total_users", 0),
+    }
+
+    user_ctx = {"id": user_id, "name": "Mehmon", "balance": 0, "refs": 0, "is_vip": False, "vip_until": "", "vip_tag": "PREMIUM", "favs": 0}
+    if user_id:
+        u = await db.get_user(user_id) or {}
+        is_vip = await db.is_user_premium(user_id)
+        favs = await db.get_user_favorites(user_id)
+        user_ctx = {
+            "id": user_id,
+            "name": u.get("full_name") or "Foydalanuvchi",
+            "username": u.get("username") or "",
+            "balance": int(u.get("balance") or 0),
+            "refs": int(u.get("ref_count") or 0),
+            "is_vip": is_vip,
+            "vip_until": (u.get("premium_until") or "")[:10],
+            "vip_tag": u.get("vip_tag") or "PREMIUM",
+            "favs": len(favs),
+            "role": u.get("role") or "user",
+        }
+    return bot_ctx, user_ctx
+
+
+def _build_movieland_system_prompt(bot_ctx: dict, user_ctx: dict, candidate_movies: list, serials_list: list, lang: str) -> str:
+    """Movie Land AI ni botning ipidan ignasigacha biladigan professional ekspertga aylantiruvchi tizim ko'rsatmasi."""
+    resp_lang = "rus tilida (tabiiy, samimiy, professional)" if lang == "ru" else "sof o'zbek tilida (lotin alifbosida, samimiy, jonli va professional)"
+    vip_status = (
+        f"FAOL ({user_ctx['vip_until']} gacha, teg: [{user_ctx['vip_tag']}])"
+        if user_ctx.get("is_vip") else "Oddiy (Standard)"
+    )
+    serial_summary = ", ".join(f"#{s['code']} {s['name']}" for s in serials_list[:15]) or "Hozircha yo'q"
+    cand_lines = "\n".join(
+        f"- #{m['code']} | {m['name']} ({m.get('year','')}, {m.get('country','')}) | {'Serial' if m.get('is_serial') else 'Kino'} | {m.get('genre','')} | IMDb {m.get('imdb','8.4')} | 👁 {m.get('views',0)} | {(m.get('caption') or '')[:140]}"
+        for m in candidate_movies[:12]
+    ) or "— Hozircha mos nom topilmadi"
+
+    return f"""Sen — «Movie Land AI», Telegramdagi @{bot_ctx['bot_username']} (Movie Land Ultra) kinobotining rasmiy, eng aqlli sun'iy intellekt yordamchisi va kino ekspertisan.
+Sening vazifang — foydalanuvchi bilan xuddi tirik professional kino maslahatchisi va qo'llab-quvvatlash mutaxassisidek tabiiy, aniq va foydali suhbat qurish!
+
+=== MOVIE LAND BOT HAQIDA TO'LIQ MA'LUMOT (IPDAN IGNASIGACHA) ===
+• Rasmiy bot: @{bot_ctx['bot_username']} | Ega / Super Admin: {bot_ctx['owner']}
+• Asosiy kanal: {bot_ctx['channel']} (barcha yangi kinolar kodi va posteri bilan joylanadi)
+• Rasmiy Mavzuli Guruh: {bot_ctx['group']} — 5 ta mavzudan iborat:
+  1) ⚡ Faollik (yangi a'zolar, VIP xaridlar)
+  2) 💸 Premium Otzivlar (VIP foydalanuvchilar fikrlari)
+  3) ⭐ Buyurtmalar (foydalanuvchilar kino buyurtmalari)
+  4) 💎 Qoidalar (bot va guruh qoidalari)
+  5) 👑 Muhokama (kino muhokamalari va chat)
+• Movie Land WebApp (Mini Ilova): {bot_ctx['webapp_url']} — qorong'i/yorug' rejim, qidiruv, janrlar, treylerlar, sevimlilar, shaxsiy profil, balansdan VIP sotib olish va Movie Land AI chati mavjud.
+• Bazadagi kontent: jami {bot_ctx['total_movies']} ta kino/serial, {bot_ctx['total_serials']} ta serial ({bot_ctx['total_episodes']} qism), {bot_ctx['total_users']} ta foydalanuvchi.
+• Bazadagi barcha seriallar: {serial_summary}
+
+=== FUNKSIYALAR VA FOYDALANISH YO'RIQNOMASI ===
+1. Kino qidirish:
+   - Bosh menyudagi «🔍 Kino qidirish» tugmasini bosing yoki istalgan chatda @{bot_ctx['bot_username']} kino_nomi yozing (rasmli tezkor qidiruv);
+   - Yoki kino raqamli kodini (masalan: 90 yoki #101) to'g'ridan-to'g'ri botga yuboring;
+   - Yoki kino nomini yozing / WebApp katalogidan tanlang.
+2. Kino va serial tomosha qilish:
+   - Avval HD Poster Karta chiqadi. Yakka kinoda «▶️ Kino ko'rish» tugmasi bosiladi;
+   - Seriallarda qism raqami (1, 2, 3...) bosiladi, video ostidan qismlarni videoni o'chirmasdan almashtirish mumkin.
+3. VIP (Premium) narxlari va afzalliklari:
+   - 7 kunlik VIP: {bot_ctx['vip_7']:,} so'm
+   - 30 kunlik VIP: {bot_ctx['vip_30']:,} so'm
+   - 90 kunlik VIP: {bot_ctx['vip_90']:,} so'm
+   - Afzalliklari: majburiy kanallarga a'zo bo'lish shart emas, reklamasiz, Mavzuli Guruhda [PREMIUM]/[VIP KING]/[KINOQIROL]/[LEGEND] maxsus tegi, kuniga {bot_ctx['vip_lim']} ta kino buyurtma (oddiy: {bot_ctx['free_lim']} ta).
+   - Sotib olish usullari: (a) Botdagi «💎 VIP Do'kon» yoki WebApp Profilidan balans orqali bir zumda; (b) «💳 Karta orqali to'lov» ({bot_ctx['card_info']}) -> chek rasmini yuborish -> admin tasdiqlaydi.
+4. Bonus va Pul ishlash («🎁 Bonus & Referal»):
+   - Kunlik bonus: har 24 soatda +{bot_ctx['daily_rew']:,} so'm;
+   - Do'st taklif qilish (Referal): har bir do'st uchun +{bot_ctx['ref_rew']:,} so'm (havola: https://t.me/{bot_ctx['bot_username']}?start=ref_{user_ctx['id']}).
+5. Boshqa bo'limlar: «🎬 Buyurtma» (yo'q kinoni so'rash), «⭐ Sevimlilar», «🎲 Tasodifiy kino», «🎭 Janrlar», «👤 Kabinet», «🌐 Til (UZ/RU)».
+
+=== JORIY FOYDALANUVCHI PROFILI (JONLI) ===
+• Ism: {user_ctx['name']} | ID: {user_ctx['id']}
+• Balans: {user_ctx['balance']:,} so'm | Takliflar: {user_ctx['refs']} ta do'st | Sevimlilar: {user_ctx['favs']} ta
+• VIP holati: {vip_status}
+
+=== BAZAMIZDAGI SO'ROVGA ENG MOS KINOLAR (FAQAT SHU KODLARDAN FOYDALAN!) ===
+{cand_lines}
+
+=== QAT'IY QOIDALAR ===
+1. Javobing {resp_lang} bo'lsin. Foydalanuvchi savoliga qarab professional, tushunarli va samimiy gaplash!
+2. Agar foydalanuvchi bot funksiyalari, VIP, balans, referal, karta, buyurtma, WebApp, guruh, kanal yoki muammo haqida so'rasa — yuqoridagi aniq raqamlar va uning jonli profili asosida to'liq va aniq javob ber!
+3. Kino tavsiya qilganda FAQAT yuqoridagi bazamizdagi haqiqiy #kod lardan foydalan (hech qachon o'ylab topilgan soxta kod yozma!). Agar foydalanuvchi so'ragan aniq kino bazada yo'q bo'lsa, uni ochiq aytib, «🎬 Buyurtma» orqali buyurtma berishni taklif qil va o'xshash mavjud kinolarni ko'rsat.
+4. Format: faqat oddiy matn hamda zarur joyda <b>qalin</b> va <i>kursiv</i> HTML teglari (Markdown ## yoki ``` ishlatma). Javob 1200 belgidan oshmasin."""
+
+
+def _detect_bot_support_intent(q_low: str, q_norm: str) -> str:
+    """Foydalanuvchi kino qidiryaptimi yoki bot/VIP/balans/yordam haqida so'rayaptimi aniqlaydi."""
+    if any(k in q_low for k in ("vip", "premium", "obuna", "tarif", "narx", "karta", "to'lov", "tolov", "chek", "sotib ol", "премиум", "подписк", "оплат", "цена")):
+        return "vip"
+    if any(k in q_low for k in ("balans", "pul ishla", "referal", "taklif", "bonus", "kunlik", "do'st", "dost", "баланс", "реферал", "бонус", "заработ")):
+        return "balance"
+    if any(k in q_low for k in ("buyurtma", "zakaz", "qo'shib ber", "qoshib ber", "topolmadim", "bazada yo'q", "заказ")):
+        return "order"
+    if any(k in q_low for k in ("webapp", "web app", "sayt", "mini ilova", "ilova", "оқ", "oppoq", "ssl", "веб")):
+        return "webapp"
+    if any(k in q_low for k in ("qanday ishlaydi", "qanday qidir", "qanday kor", "qanday ko'r", "nima qila olasan", "yordam", "kod qayerda", "qism", "guruh", "kanal", "admin", "qoida", "помощь", "как работает", "как искать")):
+        return "howto"
+    if len(q_norm.split()) <= 3 and any(g in q_norm for g in ("salom", "assalom", "privet", "привет", "hello", "hi", "qalaysan", "yaxshimisan", "rahmat", "raxmat", "спасибо")):
+        return "greeting"
+    return "movie"
+
+
+def _smart_builtin_expert_reply(intent: str, raw_q: str, bot_ctx: dict, user_ctx: dict, best_movies: list, lang: str) -> tuple[str, list]:
+    """Tashqi LLM kaliti vaqtincha band/403 bo'lganda ham botni ipdan ignasigacha biladigan professional javob beradi."""
     import html as _html
+    bal = user_ctx["balance"]
+    name = _html.escape(str(user_ctx["name"]))
+
+    if intent == "greeting":
+        if any(w in raw_q.lower() for w in ("rahmat", "raxmat", "спасибо")):
+            msg = (
+                f"🤖 <b>Arzimaydi, {name}!</b> Yana qanday kino, serial yoki bot bo'yicha savolingiz bo'lsa bemalol yozavering — 24/7 xizmatingizdaman! 🎬"
+                if lang != "ru" else
+                f"🤖 <b>Пожалуйста, {name}!</b> Если понадобятся фильмы или помощь по боту — пишите в любое время! 🎬"
+            )
+            return msg, []
+        msg = (
+            f"🤖 <b>Assalomu alaykum, {name}! Men — Movie Land AI!</b>\n\n"
+            f"Sizga quyidagi barcha masalalarda yordam bera olaman:\n"
+            f"• 🎬 Kayfiyat, janr, yil yoki syujet bo'yicha aniq <b>kino va serial topish</b> ({bot_ctx['total_movies']} ta baza)\n"
+            f"• 💎 <b>VIP (Premium)</b> narxlari, balans va karta orqali to'lov bo'yicha maslahat\n"
+            f"• 🎁 <b>Kunlik bonus va Referal</b> orqali bepul pul yig'ish\n"
+            f"• 📱 <b>WebApp, buyurtma, qismlar va qidiruv</b> bo'yicha to'liq yo'riqnoma\n\n"
+            f"👇 <i>Istalgan savolingizni yozing yoki hozir mashhur kinolardan birini tanlang:</i>"
+            if lang != "ru" else
+            f"🤖 <b>Привет, {name}! Я — Movie Land AI!</b>\n\n"
+            f"Помогу подобрать фильмы и сериалы из базы ({bot_ctx['total_movies']} шт.), подскажу по VIP, балансу, бонусам, заказам и WebApp!\n"
+            f"👇 <i>Напишите ваш вопрос или выберите популярный фильм ниже:</i>"
+        )
+        return msg, best_movies[:4]
+
+    if intent == "vip":
+        afford = []
+        if bal >= bot_ctx["vip_90"]:
+            afford.append("90 kunlik")
+        if bal >= bot_ctx["vip_30"]:
+            afford.append("30 kunlik")
+        if bal >= bot_ctx["vip_7"]:
+            afford.append("7 kunlik")
+        if user_ctx["is_vip"]:
+            status_ln = f"✅ Sizda hozir <b>VIP [{user_ctx['vip_tag']}] FAOL</b> (<code>{user_ctx['vip_until']}</code> gacha)!"
+        elif afford:
+            status_ln = f"💰 Balansingizda <b>{bal:,} so'm</b> bor — hoziroq balansdan <b>{', '.join(afford)} VIP</b> olishingiz mumkin!"
+        else:
+            need7 = max(0, bot_ctx["vip_7"] - bal)
+            status_ln = f"💰 Joriy balansingiz: <b>{bal:,} so'm</b> (7 kunlik VIP uchun yana <b>{need7:,} so'm</b> kerak — bonus yig'ishingiz yoki karta orqali to'lashingiz mumkin)."
+
+        msg = (
+            f"💎 <b>MOVIE LAND PREMIUM (VIP) MA'LUMOTI</b>\n\n"
+            f"{status_ln}\n\n"
+            f"📦 <b>Joriy tariflar (Bot va WebApp da bir xil):</b>\n"
+            f"• 💎 <b>7 kunlik VIP:</b> {bot_ctx['vip_7']:,} so'm\n"
+            f"• 🔥 <b>30 kunlik VIP:</b> {bot_ctx['vip_30']:,} so'm\n"
+            f"• 👑 <b>90 kunlik VIP:</b> {bot_ctx['vip_90']:,} so'm\n\n"
+            f"✨ <b>Imtiyozlar:</b>\n"
+            f"• 🚫 Majburiy kanallarga a'zo bo'lish shart emas\n"
+            f"• 🏷 {bot_ctx['group']} guruhida maxsus <code>[PREMIUM]</code> / <code>[VIP KING]</code> tegi\n"
+            f"• 🎬 Kuniga <b>{bot_ctx['vip_lim']} ta</b> gacha kino buyurtma (oddiy: {bot_ctx['free_lim']} ta)\n\n"
+            f"💳 <b>Qanday sotib olinadi?</b>\n"
+            f"1) Bosh menyuda <b>«💎 VIP Do'kon»</b> (yoki WebApp → <b>Profil</b>) ga kiring;\n"
+            f"2) Balansdan 1 bosishda yoqing yoki <b>«💳 Karta orqali to'lov»</b> (<code>{bot_ctx['card_info']}</code>) orqali chek yuboring!"
+        )
+        return msg, []
+
+    if intent == "balance":
+        ref_link = f"https://t.me/{bot_ctx['bot_username']}?start=ref_{user_ctx['id']}"
+        msg = (
+            f"💰 <b>BALANS, BONUS VA REFERAL TIZIMI</b>\n\n"
+            f"👤 <b>Sizning holatingiz ({name}):</b>\n"
+            f"• 💵 Joriy balans: <b>{bal:,} so'm</b>\n"
+            f"• 👥 Taklif qilingan do'stlar: <b>{user_ctx['refs']} ta</b>\n\n"
+            f"🎁 <b>Bepul balans yig'ish usullari:</b>\n"
+            f"1) <b>Kunlik bonus:</b> Har 24 soatda <b>+{bot_ctx['daily_rew']:,} so'm</b> («🎁 Bonus & Referal» bo'limida);\n"
+            f"2) <b>Do'stlarni taklif qilish:</b> Har bir yangi do'stingiz uchun <b>+{bot_ctx['ref_rew']:,} so'm</b>!\n\n"
+            f"🔗 <b>Sizning shaxsiy referal havolangiz:</b>\n<code>{ref_link}</code>\n\n"
+            f"💡 Yig'ilgan mablag'ga <b>VIP (Premium)</b> obunasini bepul faollashtirishingiz mumkin!"
+        )
+        return msg, []
+
+    if intent == "order":
+        lim = bot_ctx["vip_lim"] if user_ctx["is_vip"] else bot_ctx["free_lim"]
+        msg = (
+            f"🎬 <b>KINO YOKI SERIAL BUYURTMA QILISH</b>\n\n"
+            f"Agar siz izlagan kino hozircha bazamizda ({bot_ctx['total_movies']} ta) yo'q bo'lsa:\n"
+            f"1) Bosh menyudan <b>«🎬 Buyurtma»</b> tugmasini bosing;\n"
+            f"2) Kino yoki serial nomini (iloji bo'lsa yili bilan) yozib yuboring;\n"
+            f"3) Buyurtmangiz {bot_ctx['group']} guruhining <b>⭐ Buyurtmalar</b> mavzusiga tushadi va adminlarimiz uni tez orada topib bazaga yuklaydi!\n\n"
+            f"📊 Sizning kunlik buyurtma limitingiz: <b>{lim} ta/kun</b>."
+        )
+        return msg, []
+
+    if intent == "webapp":
+        msg = (
+            f"📱 <b>MOVIE LAND WEBAPP (MINI ILOVA)</b>\n\n"
+            f"🌐 Manzil: <code>{bot_ctx['webapp_url']}</code>\n"
+            f"• Qorong'i va yorug' rejim, barcha janrlar kollaji, «Tez kunda — treylerlar», jonli qidiruv, sevimlilar va balansdan VIP sotib olish mavjud.\n"
+            f"• Kino tanlab <b>«✈️ Botda tomosha qilish»</b> ni bossangiz, bot sizga darhol o'sha kino/qismni yuboradi!\n"
+            f"• Agar telefonda WebApp ochilmasa, Telegram ilovasini yangilang yoki to'g'ridan-to'g'ri botdagi <b>«🔍 Kino qidirish»</b> dan foydalaning."
+        )
+        return msg, []
+
+    if intent == "howto":
+        msg = (
+            f"🧭 <b>MOVIE LAND BOTDAN FOYDALANISH YO'RIQNOMASI</b>\n\n"
+            f"1️⃣ <b>Tezkor rasmli qidiruv:</b> Bosh menyuda <b>«🔍 Kino qidirish»</b> ni bosing yoki chatda <code>@{bot_ctx['bot_username']} kino_nomi</code> yozing.\n"
+            f"2️⃣ <b>Kod orqali topish:</b> {bot_ctx['channel']} kanalidagi kino kodini (masalan: <code>90</code> yoki <code>101</code>) botga yuboring.\n"
+            f"3️⃣ <b>Serial ko'rish:</b> Poster ostidagi qism raqamini (<code>1, 2, 3...</code>) bosing — qismlarni videoni o'chirmasdan almashtirasiz.\n"
+            f"4️⃣ <b>Guruh va Kanal:</b> Premyeralar — {bot_ctx['channel']}, Muhokama va Buyurtmalar — {bot_ctx['group']}.\n"
+            f"5️⃣ <b>Aloqa / Ega:</b> {bot_ctx['owner']}\n\n"
+            f"💬 Yana aniq savolingiz yoki kino izlayotgan bo'lsangiz yozing!"
+        )
+        return msg, []
+
+    # Kino / Serial tavsiya natijasi
+    lines = []
+    if lang == "ru":
+        intro = f"🤖 <b>Movie Land AI</b> подобрал лучшие варианты по запросу <i>«{_html.escape(raw_q[:70])}»</i>:\n"
+        for i, m in enumerate(best_movies[:5], 1):
+            badge = "📺 Сериал" if m.get("is_serial") else "🎬 Фильм"
+            short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:110]
+            cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
+            lines.append(
+                f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
+                f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
+            )
+        outro = "\n👇 <i>Нажмите на кнопку фильма ниже или напишите «ещё» / уточните жанр!</i>"
+    else:
+        intro = f"🤖 <b>Movie Land AI</b> sizning <i>«{_html.escape(raw_q[:70])}»</i> so'rovingiz bo'yicha eng moslarini saraladi:\n"
+        for i, m in enumerate(best_movies[:5], 1):
+            badge = "📺 Serial" if m.get("is_serial") else "🎬 Kino"
+            short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:110]
+            cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
+            lines.append(
+                f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
+                f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
+            )
+        outro = "\n👇 <i>Pastdagi tugmadan darhol ochib ko'ring yoki «yana boshqasi» deb yozing!</i>"
+    return intro + "\n" + "\n\n".join(lines) + "\n" + outro, best_movies[:5]
+
+
+async def movie_land_ai_chat(
+    user_query: str,
+    movies_catalog: list,
+    lang: str = "uz",
+    user_id: int = 0,
+    external_history: list = None
+) -> dict:
+    """
+    Professional Movie Land AI — ko'p navbatli suhbat xotirasi, botning barcha jonli ma'lumotlari,
+    foydalanuvchi balansi/VIP holati va jonli katalog asosida Google Gemini 2.5 Flash/Pro (yoki Top-15 AI)
+    hamda ichki ekspert dvigateli orqali to'liq suhbatlashadi!
+    """
     raw_q = (user_query or "").strip()
     q_low = raw_q.lower()
     q_norm = _norm_title(raw_q)
 
-    if not movies_catalog:
-        empty_msg = (
-            "🤖 <b>Movie Land AI:</b> Hozircha katalog to'ldirilmoqda. Tez orada minglab kinolar qo'shiladi!"
-            if lang != "ru" else
-            "🤖 <b>Movie Land AI:</b> Каталог сейчас наполняется. Скоро появятся лучшие фильмы!"
-        )
-        return {"reply": empty_msg, "movies": []}
+    bot_ctx, user_ctx = await _gather_live_bot_knowledge(user_id=user_id)
+    intent = _detect_bot_support_intent(q_low, q_norm)
 
-    # Salomlashish yoki yordam so'rovi
-    greetings = ("salom", "assalom", "privet", "привет", "hello", "hi", "qalaysan", "nima qila olasan", "yordam", "help")
-    if len(q_norm.split()) <= 3 and any(g in q_norm for g in greetings):
-        top_pick = sorted(movies_catalog, key=lambda x: int(x.get("views") or 0), reverse=True)[:4]
-        if lang == "ru":
-            msg = (
-                "🤖 <b>Привет! Я — Movie Land AI!</b>\n"
-                "Напишите настроение, жанр, год или сюжет фильма (например: <i>«смешная комедия»</i>, "
-                "<i>«фильм про магию и короля»</i> или <i>«посоветуй сериал»</i>) — я мгновенно подберу лучшие фильмы из нашей базы!\n\n"
-                "🔥 <b>Сейчас популярны:</b>"
-            )
-        else:
-            msg = (
-                "🤖 <b>Assalomu alaykum! Men — Movie Land AI yordamchisiman!</b>\n"
-                "Kayfiyatingiz, janr, yil yoki esingizda qolgan syujetni yozing (masalan: <i>«kulgili oilaviy kino»</i>, "
-                "<i>«sehrgar va qirol haqida serial»</i> yoki <i>«2024 jangari»</i>) — bazamizdan eng zo'rlarini topib beraman!\n\n"
-                "🔥 <b>Hozir eng mashhurlari:</b>"
-            )
-        return {"reply": msg, "movies": top_pick}
+    # Suhbat tarixini olish (bot xotirasi yoki WebApp history)
+    history = list(external_history) if external_history is not None else list(_AI_CONVERSATION_MEMORY.get(user_id, []))
+    wants_more = any(w in q_norm for w in ("yana", "boshqa", "boshqasi", "keyingi", "еще", "ещё", "другой", "другие"))
+    shown_prev = _AI_LAST_SHOWN_CODES.get(user_id, set()) if wants_more else set()
 
+    # Bazadagi eng mos kinolarni hisoblash
     wants_serial = any(k in q_low for k in ("serial", "сериал", "qismli", "fasl", "sezon", "epizod"))
     wants_movie_only = any(k in q_low for k in ("faqat kino", "bitta kino", "to'liq metraj"))
     wants_top = any(k in q_low for k in ("top", "mashhur", "eng zo'r", "eng zor", "eng yaxshi", "reyting", "imdb", "лучш", "популяр", "топ"))
     wants_new = any(k in q_low for k in ("yangi", "premyera", "oxirgi", "новейш", "новинк", "новый", "новые"))
-    wants_random = any(k in q_low for k in ("tasodif", "xohlagan", "farqi yo'q", "farqi yoq", "любой", "случайн"))
+    wants_random = any(k in q_low for k in ("tasodif", "xohlagan", "farqi yo'q", "farqi yoq", "любой", "случайн")) or wants_more
 
     year_m = re.search(r"\b(19\d{2}|20\d{2})\b", raw_q)
     target_year = year_m.group(1) if year_m else ""
@@ -2284,9 +2658,13 @@ async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = 
             matched_genres.append(g_key)
 
     tokens = [w for w in q_norm.split() if len(w) >= 3 and w not in _AI_STOPWORDS]
+    serials_all = [m for m in movies_catalog if m.get("is_serial")]
 
     scored = []
     for m in movies_catalog:
+        m_code = str(m.get("code") or "")
+        if wants_more and m_code in shown_prev:
+            continue
         score = 0.0
         m_name = str(m.get("name") or "")
         m_name_norm = _norm_title(m_name)
@@ -2294,7 +2672,6 @@ async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = 
         m_cap_norm = _norm_title(str(m.get("caption") or ""))
         m_country_low = str(m.get("country") or "").lower()
         m_year = str(m.get("year") or "")
-        m_code = str(m.get("code") or "")
         is_ser = bool(m.get("is_serial"))
         views = int(m.get("views") or 0)
         try:
@@ -2302,18 +2679,13 @@ async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = 
         except Exception:
             imdb_f = 8.0
 
-        # Kod bo'yicha aniq moslik
         if q_norm.lstrip("#") == m_code:
             score += 120.0
-
-        # Nom bo'yicha to'liq yoki qisman moslik
         if q_norm and len(q_norm) >= 3:
             if q_norm == m_name_norm:
                 score += 100.0
             elif q_norm in m_name_norm or (len(m_name_norm) >= 4 and m_name_norm in q_norm):
                 score += 65.0
-
-        # So'zlar bo'yicha syujet + nom + davlat mosligi
         for tok in tokens:
             if tok in m_name_norm:
                 score += 24.0
@@ -2323,93 +2695,90 @@ async def movie_land_ai_chat(user_query: str, movies_catalog: list, lang: str = 
                 score += 14.0
             if tok in m_country_low:
                 score += 12.0
-
-        # Janr/kayfiyat mosligi
         for gk in matched_genres:
             if gk in m_genre_low or (gk == "qo'rqinchli" and "qorqinchli" in _norm_title(m_genre_low)):
                 score += 28.0
-
-        # Serial / Kino filtri
         if wants_serial:
             score += 36.0 if is_ser else -15.0
         elif wants_movie_only:
             score += 12.0 if not is_ser else -20.0
-
-        # Yil bo'yicha
         if target_year:
             if m_year == target_year:
                 score += 30.0
             elif m_year.isdigit() and abs(int(m_year) - int(target_year)) <= 1:
                 score += 12.0
-
-        # Top / Yangi / Tasodifiy bonuslari
         if wants_top:
             score += min(views / 80.0, 20.0) + (imdb_f * 2.5)
         if wants_new and m_year.isdigit() and int(m_year) >= 2023:
             score += 20.0
         if wants_random:
             score += random.uniform(5.0, 25.0)
-
-        # Kichik sifat bonusi (ko'rilish va reyting)
         score += min(views / 500.0, 4.0) + (imdb_f * 0.4)
         scored.append((score, m))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    # Agar kuchli mosliklar bo'lsa shularni olamiz, aks holda eng sara top filmlardan
-    best = [m for sc, m in scored[:6] if sc >= 14.0]
-    if not best:
-        best = [m for _, m in scored[:5]]
+    best_candidates = [m for _, m in scored[:12]]
+    top_movies = [m for sc, m in scored[:5] if sc >= 14.0] or best_candidates[:5]
 
-    # Agar tashqi Top-15 AI provayderi uchun API kalit ulangan bo'lsa, jonli LLM javobini sinaymiz!
+    # 1. Google Gemini 2.5 Flash/Pro (yoki Top-15 AI dan ulangan har qanday faol provayder) bilan jonli professional suhbat!
     llm_reply = ""
+    used_model = ""
     try:
         ai_enabled = await db.get_setting("ai_enabled", "1")
         if ai_enabled == "1":
             active_prov = await db.get_setting("ai_active_provider", "gemini")
-            api_key = await db.get_setting(f"ai_key_{active_prov}", "")
-            if api_key:
-                cand_lines = "\n".join(
-                    f"- #{m['code']} {m['name']} ({m.get('year','')}, {m.get('genre','')}, IMDb {m.get('imdb','8.4')}, {'Serial' if m.get('is_serial') else 'Kino'}): {(m.get('caption') or '')[:110]}"
-                    for m in best[:5]
+            prov_order = [active_prov] + [p for p in config.TOP_15_AI_PROVIDERS if p != active_prov]
+            sys_prompt = _build_movieland_system_prompt(bot_ctx, user_ctx, best_candidates, serials_all, lang)
+            for p_key in prov_order:
+                p_token = (await db.get_setting(f"ai_key_{p_key}", "") or "").strip()
+                if not p_token:
+                    continue
+                res_llm = await call_ai_provider_chat(
+                    provider_key=p_key,
+                    api_key=p_token,
+                    system_prompt=sys_prompt,
+                    user_message=raw_q,
+                    history=history,
+                    max_tokens=900,
+                    temperature=0.68,
                 )
-                sys_lang = "rus tilida" if lang == "ru" else "sof o'zbek tilida"
-                prompt = (
-                    f"Sen Movie Land kinobotining aqlli 'Movie Land AI' yordamchisisan. "
-                    f"Foydalanuvchi savoli: «{raw_q}».\n"
-                    f"Bizning bazamizdagi eng mos kinolar:\n{cand_lines}\n\n"
-                    f"Faqat yuqoridagi bazadagi kinolardan 3-5 tasini tanlab, {sys_lang} qisqa, samimiy va chiroyli tavsiya yoz. "
-                    f"Har bir kino kodini (#kod) ko'rsat. HTML teglaridan faqat <b> va <i> ishlat, 750 belgidan oshmasin."
-                )
-                llm_reply = await asyncio.wait_for(call_ai_provider(active_prov, api_key, prompt), timeout=12)
-    except Exception:
-        llm_reply = ""
+                if res_llm.get("ok") and len(res_llm.get("text", "").strip()) >= 12:
+                    llm_reply = _sanitize_ai_html(res_llm["text"])
+                    used_model = res_llm.get("model", p_key)
+                    break
+    except Exception as e:
+        logging.warning(f"movie_land_ai_chat LLM xatosi: {e}")
 
-    if llm_reply and len(llm_reply.strip()) >= 25:
-        reply_text = f"🤖 <b>Movie Land AI:</b>\n\n{llm_reply.strip()}"
+    if llm_reply:
+        # AI javobida tilga olingan #kod larni tugma sifatida birinchi o'ringa chiqaramiz!
+        mentioned_codes = re.findall(r"#(\d{1,5})\b", llm_reply)
+        by_code = {str(m["code"]): m for m in movies_catalog}
+        btn_movies = []
+        seen_c = set()
+        for mc in mentioned_codes:
+            if mc in by_code and mc not in seen_c:
+                btn_movies.append(by_code[mc])
+                seen_c.add(mc)
+        if not btn_movies and intent == "movie":
+            btn_movies = top_movies[:4]
+        reply_text = f"🤖 <b>Movie Land AI</b> <i>({used_model})</i>:\n\n{llm_reply}"
+        final_movies = btn_movies[:5]
     else:
-        lines = []
-        if lang == "ru":
-            intro = f"🤖 <b>Movie Land AI</b> подобрал лучшие варианты по запросу <i>«{_html.escape(raw_q[:60])}»</i>:\n"
-            for i, m in enumerate(best[:5], 1):
-                badge = "📺 Сериал" if m.get("is_serial") else "🎬 Фильм"
-                short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:95]
-                cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
-                lines.append(
-                    f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
-                    f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
-                )
-            outro = "\n👇 <i>Нажмите на любой фильм ниже, чтобы сразу открыть и посмотреть!</i>"
-        else:
-            intro = f"🤖 <b>Movie Land AI</b> sizning <i>«{_html.escape(raw_q[:60])}»</i> so'rovingiz bo'yicha eng moslarini topdi:\n"
-            for i, m in enumerate(best[:5], 1):
-                badge = "📺 Serial" if m.get("is_serial") else "🎬 Kino"
-                short_cap = (m.get("caption") or "").strip().replace("\n", " ")[:95]
-                cap_part = f"\n   <i>{_html.escape(short_cap)}...</i>" if short_cap else ""
-                lines.append(
-                    f"{i}. <b>#{m['code']} — {_html.escape(str(m['name']))}</b> ({m.get('year','')})\n"
-                    f"   {badge} • {m.get('genre','')} • ⭐ {m.get('imdb','8.4')}{cap_part}"
-                )
-            outro = "\n👇 <i>Pastdagi tugmalardan birini bosing — kino kartasi darhol ochiladi!</i>"
-        reply_text = intro + "\n" + "\n\n".join(lines) + "\n" + outro
+        reply_text, final_movies = _smart_builtin_expert_reply(intent, raw_q, bot_ctx, user_ctx, top_movies, lang)
 
-    return {"reply": reply_text, "movies": best[:5]}
+    # Suhbat xotirasini saqlaymiz (keyingi savollarda kontekstni eslab qoladi!)
+    if user_id:
+        plain_rep = re.sub(r"<[^>]+>", "", reply_text)[:900]
+        hist = _AI_CONVERSATION_MEMORY.setdefault(user_id, [])
+        hist.append(("user", raw_q[:500]))
+        hist.append(("model", plain_rep))
+        if len(hist) > 12:
+            _AI_CONVERSATION_MEMORY[user_id] = hist[-12:]
+        if final_movies:
+            s_set = _AI_LAST_SHOWN_CODES.setdefault(user_id, set())
+            for fm in final_movies:
+                s_set.add(str(fm["code"]))
+            if len(s_set) > 40:
+                _AI_LAST_SHOWN_CODES[user_id] = set(list(s_set)[-20:])
+
+    return {"reply": reply_text, "movies": final_movies, "model": used_model or "builtin-expert"}

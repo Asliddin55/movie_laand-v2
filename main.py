@@ -2972,7 +2972,7 @@ async def cb_wadm_close(call: CallbackQuery):
     await call.answer("Yopildi")
 
 
-@dp.callback_query(F.data == "wadm_toggle_enabled")
+@dp.callback_query(F.data.in_({"wadm_toggle_enabled", "wadm_toggle_status"}))
 async def cb_wadm_toggle_enabled(call: CallbackQuery):
     if not await _check_wadm_auth(call):
         return
@@ -3218,6 +3218,52 @@ async def cb_wadm_sync_menu(call: CallbackQuery):
     )
 
 
+@dp.callback_query(F.data == "wadm_check_ssl")
+async def cb_wadm_check_ssl(call: CallbackQuery):
+    if not await _check_wadm_auth(call):
+        return
+    await call.answer("🔒 SSL sertifikat va sayt tekshirilmoqda...")
+    w_url = await get_webapp_url()
+    import ssl
+    import urllib.request
+    def _probe():
+        try:
+            req = urllib.request.Request(w_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return True, f"HTTP {r.status} — SSL sertifikat 100% ishonchli!"
+        except Exception as exc:
+            return False, str(exc)
+    ok_ssl, detail = await asyncio.to_thread(_probe)
+    if ok_ssl:
+        txt = (
+            f"✅ <b>WEBAPP HTTPS / SSL 100% TO'G'RI ISHLAMOQDA!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🌐 <b>Manzil:</b> <code>{html.escape(w_url)}</code>\n"
+            f"🔒 <b>Holat:</b> {html.escape(detail)}\n\n"
+            f"📱 Android, iOS va Desktop Telegram ilovalarida muammosiz ochiladi!"
+        )
+    else:
+        txt = (
+            f"❌ <b>SSL SERTIFIKAT MUAMMOSI ANIQLANDI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🌐 <b>Manzil:</b> <code>{html.escape(w_url)}</code>\n"
+            f"⚠️ <b>Xato:</b> <code>{html.escape(detail[:220])}</code>\n\n"
+            f"🛠 <b>30 soniyalik yechim (MyXvest panelida):</b>\n"
+            f"1) <b>MyXvest ISPmanager</b> → <b>SSL-сертификаты</b> → <b>Добавить Let's Encrypt</b>;\n"
+            f"2) Domenni tanlang (<code>6b02fedeb2d06.myxvest1.ru</code>) va <b>Выпустить</b> ni bosing;\n"
+            f"3) <b>Сайты / WWW-домены</b> → domenni oching → <b>Защищенное соединение (SSL)</b> ni yoqib, yangi Let's Encrypt sertifikatini tanlab saqlang!\n\n"
+            f"<i>Shundan so'ng telefonda WebApp oppoq bo'lib qolmaydi va 100% ochiladi!</i>"
+        )
+    await call.message.edit_text(
+        txt,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [kb.ibtn(text="🔄 Qayta tekshirish", callback_data="wadm_check_ssl", style="primary")],
+            [kb.ibtn(text="🔙 WebApp Admin paneliga", callback_data="wadm_back")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
 @dp.callback_query(F.data == "wadm_change_pass")
 async def cb_wadm_change_pass(call: CallbackQuery, state: FSMContext):
     if not await _check_wadm_auth(call):
@@ -3367,14 +3413,37 @@ async def cb_ai_test_prov(call: CallbackQuery):
     if await db.get_user_role(call.from_user.id) != "superadmin":
         return
     p_key = call.data.split(":")[1]
-    await call.answer(f"🧪 AI ({p_key}) tekshirilmoqda...")
-    res = await ai_service.process_movie_description_with_ai(
-        name="Qasoskorlar: Intiho",
-        genre="🔥 Jangari, 🚀 Fantastika",
-        year="2019",
-        country="AQSH"
+    api_key = (await db.get_setting(f"ai_key_{p_key}", "") or "").strip()
+    if not api_key:
+        await call.answer("⚠️ Bu provayder uchun API Token kiritilmagan!", show_alert=True)
+        return
+    await call.answer(f"🧪 AI ({p_key}) jonli tekshirilmoqda...")
+    t0 = time.monotonic()
+    res = await ai_service.call_ai_provider_chat(
+        provider_key=p_key,
+        api_key=api_key,
+        system_prompt="Sen Movie Land AI yordamchisisan. O'zbek tilida 1-2 jumla qisqa va samimiy javob ber.",
+        user_message="Salom! O'zingni tanishtir va Movie Land haqida 1 jumla ayt.",
+        max_tokens=160
     )
-    await call.message.answer(f"✅ <b>AI ({p_key}) Test Natijasi:</b>\n\n<i>{res}</i>", parse_mode="HTML")
+    ms = int((time.monotonic() - t0) * 1000)
+    if res.get("ok"):
+        await call.message.answer(
+            f"✅ <b>AI ({p_key}) JONLI TEST MUVAFFAQIYATLI!</b>\n"
+            f"🤖 <b>Model:</b> <code>{html.escape(res.get('model', ''))}</code> • ⚡ <b>Tezlik:</b> {ms}ms\n\n"
+            f"💬 <i>{ai_service._sanitize_ai_html(res.get('text', ''))}</i>",
+            parse_mode="HTML"
+        )
+    else:
+        err = res.get("error", "Noma'lum xato")
+        hint = ""
+        if "free tier is not available" in err.lower() or "403" in err:
+            hint = "\n\n💡 <b>Yechim:</b> Google ushbu eski loyihada Free Tier ni yopgan. <b>aistudio.google.com/apikey</b> saytidan yangi bepul <code>AIza...</code> kalit olib «🔑 API Token kiritish» ga joylang — darhol Gemini 2.5 Flash ishga tushadi!"
+        await call.message.answer(
+            f"❌ <b>AI ({p_key}) API TEST XATOLIGI!</b>\n"
+            f"⚠️ <code>{html.escape(err[:350])}</code>{hint}",
+            parse_mode="HTML"
+        )
 
 @dp.callback_query(F.data == "ai_run_batch")
 async def cb_ai_run_batch_movies(call: CallbackQuery):
@@ -4193,9 +4262,20 @@ async def _open_movie_land_ai_screen(target, user_id: int, state: FSMContext):
 async def _run_movie_land_ai_query(target_msg: Message, user_id: int, query_text: str):
     lang = await db.get_user_lang(user_id)
     movies = await db.get_all_movies(1000)
-    res = await ai_service.movie_land_ai_chat(query_text, movies, lang=lang)
+    res = await ai_service.movie_land_ai_chat(query_text, movies, lang=lang, user_id=user_id)
     markup = kb.movie_land_ai_inline(res.get("movies") or [], lang=lang)
-    await target_msg.answer(res["reply"], reply_markup=markup, parse_mode="HTML")
+    try:
+        await target_msg.answer(res["reply"], reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        clean_plain = re.sub(r"<[^>]+>", "", res["reply"])
+        await target_msg.answer(clean_plain, reply_markup=markup)
+
+
+@dp.callback_query(F.data == "ai_clear_mem")
+async def cb_ai_clear_mem(call: CallbackQuery, state: FSMContext):
+    ai_service.clear_movie_land_ai_memory(call.from_user.id)
+    await call.answer("🧹 Suhbat tarixi tozalandi! Yangi mavzuda yozishingiz mumkin.", show_alert=False)
+    await _open_movie_land_ai_screen(call, call.from_user.id, state)
 
 
 @dp.message(Command("ai"))
@@ -6597,9 +6677,13 @@ async def start_dummy_health_server():
                 body = await request.json()
                 q = str(body.get("query", "")).strip()
                 lang = "ru" if body.get("lang") == "ru" else "uz"
+                tg_u = verify_telegram_webapp_init_data(body.get("initData", ""))
+                uid = int(tg_u.get("id", 0)) if tg_u else 0
+                raw_hist = body.get("history") if isinstance(body.get("history"), list) else None
+                ext_hist = [(str(h.get("role", "user")), str(h.get("text", ""))) for h in raw_hist if isinstance(h, dict) and h.get("text")] if raw_hist is not None else None
                 movies = await db.get_all_movies(1000)
-                res = await ai_service.movie_land_ai_chat(q, movies, lang=lang)
-                return web.json_response({"ok": True, "reply": res["reply"], "movies": res["movies"]})
+                res = await ai_service.movie_land_ai_chat(q, movies, lang=lang, user_id=uid, external_history=ext_hist)
+                return web.json_response({"ok": True, "reply": res["reply"], "movies": res["movies"], "model": res.get("model", "")})
             except Exception as e:
                 return web.json_response({"ok": False, "error": str(e)}, status=400)
 

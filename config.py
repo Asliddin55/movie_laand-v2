@@ -108,8 +108,9 @@ DEFAULT_ROLE_PERMS = {
 # TOP 15 KUCHLI AI PROVAYDERLAR RO'YXATI
 TOP_15_AI_PROVIDERS = {
     "gemini": {
-        "name": "1. Google Gemini 2.5 Pro / Flash",
-        "model": "gemini-2.0-flash",
+        "name": "1. Google Gemini 2.5 Flash / Pro",
+        "model": "gemini-2.5-flash",
+        "fallback_models": ["gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
         "type": "gemini"
     },
     "openai": {

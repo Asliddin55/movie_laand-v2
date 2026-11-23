@@ -25,6 +25,8 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # Always allow Let's Encrypt ACME HTTP-01 challenge for trusted SSL!
+    RewriteRule ^\.well-known/ - [L]
     # Block hidden directories (.git, .venv, etc.) and backups/
     RewriteRule ^(\.git|backups|__pycache__|micromamba)(/|$) - [F,L]
 </IfModule>

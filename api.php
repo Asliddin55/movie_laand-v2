@@ -505,14 +505,29 @@ if ($action === 'buy_vip') {
     }
 }
 
-// ==================== ACTION: MOVIE LAND AI CHAT (LIVE SQLITE SMART ENGINE) ====================
+// ==================== ACTION: MOVIE LAND AI CHAT (GEMINI 2.5 PRO/FLASH + FULL BOT KNOWLEDGE) ====================
 if ($action === 'ai_chat') {
     $body = ml_json_body();
     $rawQ = trim((string)($body['query'] ?? ''));
+    $initData = (string)($body['initData'] ?? '');
+    $historyIn = is_array($body['history'] ?? null) ? $body['history'] : [];
     $pdo = ml_get_pdo();
     $allMovies = [];
+    $settingsMap = ml_read_config_defaults();
+    $settingsMap['payment_card_info'] = '5614 6820 1538 7808';
+    $settingsMap['free_order_limit'] = '2';
+    $settingsMap['premium_order_limit'] = '5';
+    $settingsMap['webapp_url'] = 'https://6b02fedeb2d06.myxvest1.ru/';
+    $settingsMap['ai_enabled'] = '1';
+    $settingsMap['ai_active_provider'] = 'gemini';
 
     if ($pdo) {
+        try {
+            foreach ($pdo->query('SELECT key, value FROM settings')->fetchAll() as $sr) {
+                $settingsMap[(string)$sr['key']] = (string)$sr['value'];
+            }
+        } catch (Throwable $ignored) {}
+
         try {
             $rows = $pdo->query("
                 SELECT m.code, m.name, m.genre, m.year, m.country, m.quality, m.imdb, m.views, m.photo_id, m.caption, m.is_serial,
@@ -545,23 +560,62 @@ if ($action === 'ai_chat') {
         if (is_array($parsed) && !empty($parsed['movies'])) $allMovies = $parsed['movies'];
     }
 
-    if (empty($allMovies)) {
-        ml_json(['ok' => true, 'reply' => "🤖 Movie Land AI: Hozircha katalog to'ldirilmoqda. Tez orada eng sara kinolar qo'shiladi!", 'movies' => []]);
+    // Foydalanuvchi jonli profilini olish (agar initData bo'lsa)
+    $userCtx = ['id' => 0, 'name' => 'Mehmon', 'balance' => 0, 'refs' => 0, 'is_vip' => false, 'vip_until' => '', 'vip_tag' => 'PREMIUM'];
+    $tgUser = ml_verify_init_data($initData);
+    if ($tgUser && !empty($tgUser['id'])) {
+        $uid = (int)$tgUser['id'];
+        $userCtx['id'] = $uid;
+        $userCtx['name'] = trim(((string)($tgUser['first_name'] ?? '')) . ' ' . ((string)($tgUser['last_name'] ?? ''))) ?: 'Foydalanuvchi';
+        if ($pdo) {
+            try {
+                $us = $pdo->prepare('SELECT full_name, balance, ref_count, is_premium, premium_until, vip_tag FROM users WHERE user_id = ?');
+                $us->execute([$uid]);
+                $uRow = $us->fetch();
+                if ($uRow) {
+                    if (!empty($uRow['full_name'])) $userCtx['name'] = (string)$uRow['full_name'];
+                    $userCtx['balance'] = (int)($uRow['balance'] ?? 0);
+                    $userCtx['refs'] = (int)($uRow['ref_count'] ?? 0);
+                    $userCtx['vip_tag'] = (string)($uRow['vip_tag'] ?? 'PREMIUM');
+                    $until = (string)($uRow['premium_until'] ?? '');
+                    $isP = ((int)($uRow['is_premium'] ?? 0) === 1);
+                    if ($isP && $until !== '' && strtotime($until) !== false && strtotime($until) < time()) $isP = false;
+                    $userCtx['is_vip'] = $isP;
+                    $userCtx['vip_until'] = substr($until, 0, 10);
+                }
+            } catch (Throwable $ignored) {}
+        }
     }
 
     $qLow = ml_lower($rawQ);
     $qNorm = ml_norm_text($rawQ);
-    $greetings = ['salom', 'assalom', 'privet', 'hello', 'hi', 'yordam', 'help'];
     $words = array_values(array_filter(explode(' ', $qNorm)));
-    if ($rawQ === '' || (count($words) <= 2 && count(array_intersect($words, $greetings)) > 0)) {
-        usort($allMovies, static function ($a, $b) { return ($b['views'] ?? 0) <=> ($a['views'] ?? 0); });
-        ml_json([
-            'ok' => true,
-            'reply' => "Assalomu alaykum! Men — Movie Land AI yordamchisiman. Kayfiyatingiz, janr, yil yoki syujetni yozing (masalan: «kulgili kino», «sehrgar haqida serial», «2024 jangari») — bazamizdan eng zo'rlarini topib beraman!",
-            'movies' => array_slice($allMovies, 0, 6),
-        ]);
+
+    // Intent aniqlash (VIP, Balans, Buyurtma, Qanday ishlaydi, Salom, Kino)
+    $intent = 'movie';
+    foreach (['vip', 'premium', 'obuna', 'tarif', 'narx', 'karta', 'tolov', 'chek', 'sotib'] as $kw) {
+        if (ml_contains($qNorm, $kw)) { $intent = 'vip'; break; }
+    }
+    if ($intent === 'movie') {
+        foreach (['balans', 'pul ishla', 'referal', 'taklif', 'bonus', 'kunlik', 'dost'] as $kw) {
+            if (ml_contains($qNorm, $kw)) { $intent = 'balance'; break; }
+        }
+    }
+    if ($intent === 'movie') {
+        foreach (['buyurtma', 'zakaz', 'qoshib ber', 'topolmadim', 'bazada yoq'] as $kw) {
+            if (ml_contains($qNorm, $kw)) { $intent = 'order'; break; }
+        }
+    }
+    if ($intent === 'movie') {
+        foreach (['qanday ishlaydi', 'qanday qidir', 'nima qila olasan', 'yordam', 'guruh', 'kanal', 'admin', 'qoida', 'webapp'] as $kw) {
+            if (ml_contains($qNorm, $kw)) { $intent = 'howto'; break; }
+        }
+    }
+    if ($intent === 'movie' && ($rawQ === '' || (count($words) <= 3 && count(array_intersect($words, ['salom', 'assalom', 'privet', 'hello', 'hi', 'rahmat', 'raxmat'])) > 0))) {
+        $intent = 'greeting';
     }
 
+    // Mos kinolarni hisoblash
     $intentGenres = [
         'jangari' => ['jangari', 'urush', 'otishma', 'jang', 'qasos', 'politsiya', 'snayper', 'boevik', 'action', 'marvel', 'superqahramon'],
         'komediya' => ['komediya', 'kulgili', 'kulgi', 'hazil', 'quvnoq', 'comedy', 'prikol'],
@@ -575,38 +629,25 @@ if ($action === 'ai_chat') {
         'anime' => ['anime', 'yapon'],
     ];
     $stop = ['menga','uchun','kino','kinolar','film','topib','ber','bering','tavsiya','qil','zor','yaxshi','eng','bir','bitta','qaysi','nima','bor','haqida','bilan','yoki','korish','kerak','qidir'];
-
     $wantsSerial = false;
-    foreach (['serial', 'qismli', 'fasl', 'sezon', 'epizod'] as $sk) {
-        if (ml_contains($qNorm, $sk)) { $wantsSerial = true; break; }
-    }
+    foreach (['serial', 'qismli', 'fasl', 'sezon', 'epizod'] as $sk) { if (ml_contains($qNorm, $sk)) { $wantsSerial = true; break; } }
     $wantsTop = false;
-    foreach (['top', 'mashhur', 'eng zor', 'eng yaxshi', 'reyting', 'imdb'] as $tk) {
-        if (ml_contains($qNorm, $tk)) { $wantsTop = true; break; }
-    }
+    foreach (['top', 'mashhur', 'eng zor', 'eng yaxshi', 'reyting', 'imdb'] as $tk) { if (ml_contains($qNorm, $tk)) { $wantsTop = true; break; } }
     $wantsNew = false;
-    foreach (['yangi', 'premyera', 'oxirgi'] as $nk) {
-        if (ml_contains($qNorm, $nk)) { $wantsNew = true; break; }
-    }
-
+    foreach (['yangi', 'premyera', 'oxirgi'] as $nk) { if (ml_contains($qNorm, $nk)) { $wantsNew = true; break; } }
     $targetYear = '';
-    if (preg_match('/\b(19\d{2}|20\d{2})\b/', $rawQ, $ym)) {
-        $targetYear = $ym[1];
-    }
+    if (preg_match('/\b(19\d{2}|20\d{2})\b/', $rawQ, $ym)) $targetYear = $ym[1];
 
     $matchedGenres = [];
     foreach ($intentGenres as $gk => $kws) {
-        foreach ($kws as $kw) {
-            if (ml_contains($qNorm, $kw)) { $matchedGenres[] = $gk; break; }
-        }
+        foreach ($kws as $kw) { if (ml_contains($qNorm, $kw)) { $matchedGenres[] = $gk; break; } }
     }
-
-    $tokens = array_values(array_filter($words, static function ($w) use ($stop) {
-        return strlen($w) >= 3 && !in_array($w, $stop, true);
-    }));
+    $tokens = array_values(array_filter($words, static function ($w) use ($stop) { return strlen($w) >= 3 && !in_array($w, $stop, true); }));
 
     $scored = [];
+    $serialNames = [];
     foreach ($allMovies as $m) {
+        if (!empty($m['is_serial'])) $serialNames[] = '#' . $m['code'] . ' ' . $m['name'];
         $sc = 0.0;
         $mNameN = ml_norm_text($m['name']);
         $mGenN = ml_norm_text($m['genre']);
@@ -615,7 +656,6 @@ if ($action === 'ai_chat') {
         $mYr = (string)$m['year'];
         $views = (int)$m['views'];
         $imdb = (float)str_replace(',', '.', (string)$m['imdb']);
-
         if (ltrim($qNorm, '#') === (string)$m['code']) $sc += 120.0;
         if ($qNorm !== '' && strlen($qNorm) >= 3) {
             if ($qNorm === $mNameN) $sc += 100.0;
@@ -627,9 +667,7 @@ if ($action === 'ai_chat') {
             if (ml_contains($mGenN, $tok)) $sc += 14.0;
             if (ml_contains($mCtrN, $tok)) $sc += 12.0;
         }
-        foreach ($matchedGenres as $gk) {
-            if (ml_contains($mGenN, $gk)) $sc += 28.0;
-        }
+        foreach ($matchedGenres as $gk) { if (ml_contains($mGenN, $gk)) $sc += 28.0; }
         if ($wantsSerial) $sc += !empty($m['is_serial']) ? 36.0 : -15.0;
         if ($targetYear !== '') {
             if ($mYr === $targetYear) $sc += 30.0;
@@ -640,17 +678,144 @@ if ($action === 'ai_chat') {
         $sc += min($views / 500.0, 4.0) + ($imdb * 0.4);
         $scored[] = ['score' => $sc, 'movie' => $m];
     }
-
     usort($scored, static function ($a, $b) { return $b['score'] <=> $a['score']; });
     $picked = [];
-    foreach (array_slice($scored, 0, 6) as $row) {
-        if ($row['score'] >= 14.0 || count($picked) < 4) {
-            $picked[] = $row['movie'];
+    foreach (array_slice($scored, 0, 10) as $row) {
+        if ($row['score'] >= 14.0 || count($picked) < 5) $picked[] = $row['movie'];
+    }
+
+    $vip7 = (int)$settingsMap['vip_7_price'];
+    $vip30 = (int)$settingsMap['vip_30_price'];
+    $vip90 = (int)$settingsMap['vip_90_price'];
+    $dailyR = (int)$settingsMap['daily_reward_amount'];
+    $refR = (int)$settingsMap['ref_reward_amount'];
+    $cardI = $settingsMap['payment_card_info'];
+    $freeL = $settingsMap['free_order_limit'];
+    $vipL = $settingsMap['premium_order_limit'];
+
+    // 1. Google Gemini 2.5 Flash / Pro orqali haqiqiy professional suhbat!
+    $llmReply = '';
+    $usedModel = '';
+    $gemKey = trim((string)($settingsMap['ai_key_gemini'] ?? ''));
+    if (($settingsMap['ai_enabled'] ?? '1') === '1' && $gemKey !== '' && $rawQ !== '') {
+        $candTxt = '';
+        foreach (array_slice($picked, 0, 10) as $cm) {
+            $candTxt .= "- #{$cm['code']} {$cm['name']} ({$cm['year']}, {$cm['genre']}, IMDb {$cm['imdb']}, " . (!empty($cm['is_serial']) ? 'Serial' : 'Kino') . "): " . substr(str_replace("\n", ' ', $cm['caption']), 0, 110) . "\n";
+        }
+        $vipSt = $userCtx['is_vip'] ? "FAOL ({$userCtx['vip_until']} gacha, [{$userCtx['vip_tag']}])" : 'Oddiy (Standard)';
+        $sysInst = "Sen «Movie Land AI» — @movieeland_bot va Movie Land WebApp ning rasmiy professional sun'iy intellekt yordamchisisiz.\n"
+            . "Bot haqida to'liq ma'lumot: Kanal @movieee_land, Mavzuli Guruh @movieeland_group (Faollik, Premium Otzivlar, Buyurtmalar, Qoidalar, Muhokama), Ega: Asliddin (@asliddin_akk), WebApp: {$settingsMap['webapp_url']}.\n"
+            . "Katalog: jami " . count($allMovies) . " ta kino/serial. Seriallar: " . implode(', ', array_slice($serialNames, 0, 12)) . ".\n"
+            . "VIP narxlar (Bot va WebApp da bir xil): 7 kun = {$vip7} so'm, 30 kun = {$vip30} so'm, 90 kun = {$vip90} so'm. Karta: {$cardI}. Kunlik bonus: +{$dailyR} so'm, Referal: +{$refR} so'm/do'st. Buyurtma limiti: oddiy {$freeL}/kun, VIP {$vipL}/kun.\n"
+            . "Foydalanuvchi: {$userCtx['name']} | Balans: {$userCtx['balance']} so'm | Takliflar: {$userCtx['refs']} | VIP: {$vipSt}.\n"
+            . "Bazadagi mos kinolar (faqat shu haqiqiy #kod lardan foydalan):\n{$candTxt}\n"
+            . "Qoida: Sof o'zbek tilida (ruscha yozsa rus tilida) samimiy, professional, aniq va tushunarli javob ber. Soxta kino kodi o'ylab topma. 950 belgidan oshmasin.";
+
+        $contents = [];
+        foreach (array_slice($historyIn, -8) as $h) {
+            if (!is_array($h) || empty($h['text'])) continue;
+            $rRole = (($h['role'] ?? '') === 'bot' || ($h['role'] ?? '') === 'model') ? 'model' : 'user';
+            $contents[] = ['role' => $rRole, 'parts' => [['text' => substr((string)$h['text'], 0, 900)]]];
+        }
+        $contents[] = ['role' => 'user', 'parts' => [['text' => $rawQ]]];
+
+        $gemPayload = json_encode([
+            'systemInstruction' => ['parts' => [['text' => $sysInst]]],
+            'contents' => $contents,
+            'generationConfig' => ['temperature' => 0.68, 'maxOutputTokens' => 850],
+        ], JSON_UNESCAPED_UNICODE);
+
+        $gemModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+        foreach ($gemModels as $gm) {
+            $gUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' . $gm . ':generateContent?key=' . rawurlencode($gemKey);
+            $gCtx = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => $gemPayload,
+                    'timeout' => 14,
+                    'ignore_errors' => true,
+                ],
+            ]);
+            $gRaw = @file_get_contents($gUrl, false, $gCtx);
+            if ($gRaw === false) continue;
+            $gData = json_decode($gRaw, true);
+            if (is_array($gData) && !empty($gData['candidates'][0]['content']['parts'])) {
+                $txtOut = '';
+                foreach ($gData['candidates'][0]['content']['parts'] as $pt) {
+                    if (empty($pt['thought']) && !empty($pt['text'])) $txtOut .= (string)$pt['text'];
+                }
+                if (trim($txtOut) !== '') {
+                    $llmReply = trim($txtOut);
+                    $usedModel = $gm;
+                    break;
+                }
+            }
+            if (is_array($gData) && isset($gData['error']['code']) && (int)$gData['error']['code'] === 403) {
+                break;
+            }
         }
     }
 
-    $reply = "«{$rawQ}» so'rovingiz bo'yicha bazamizdan eng mos " . count($picked) . " ta film/serialni tanlab berdim. Istalgan kartochkani bosib darhol tomosha qilishingiz mumkin!";
-    ml_json(['ok' => true, 'reply' => $reply, 'movies' => $picked]);
+    if ($llmReply !== '') {
+        // AI javobida eslatilgan #kod larni birinchi qilib qaytaramiz
+        $byCode = [];
+        foreach ($allMovies as $am) $byCode[$am['code']] = $am;
+        $outMovies = [];
+        if (preg_match_all('/#(\d{1,5})\b/', $llmReply, $cm)) {
+            foreach (array_unique($cm[1]) as $mc) {
+                if (isset($byCode[$mc])) $outMovies[] = $byCode[$mc];
+            }
+        }
+        if (empty($outMovies) && $intent === 'movie') $outMovies = array_slice($picked, 0, 5);
+        ml_json(['ok' => true, 'reply' => $llmReply, 'movies' => array_slice($outMovies, 0, 6), 'model' => $usedModel]);
+    }
+
+    // 2. Ichki ekspert fallback (Bot haqida ham, kinolar haqida ham to'liq aniq javob!)
+    $balF = number_format($userCtx['balance'], 0, '.', ' ');
+    $v7F = number_format($vip7, 0, '.', ' ');
+    $v30F = number_format($vip30, 0, '.', ' ');
+    $v90F = number_format($vip90, 0, '.', ' ');
+    $dRF = number_format($dailyR, 0, '.', ' ');
+    $rRF = number_format($refR, 0, '.', ' ');
+
+    if ($intent === 'vip') {
+        $stLine = $userCtx['is_vip']
+            ? "✅ Sizda hozir VIP [{$userCtx['vip_tag']}] FAOL ({$userCtx['vip_until']} gacha)!"
+            : "💰 Joriy balansingiz: {$balF} so'm.";
+        $rep = "💎 Movie Land Premium (VIP) ma'lumoti:\n{$stLine}\n\n"
+            . "📦 Tariflar:\n• 7 kunlik VIP: {$v7F} so'm\n• 30 kunlik VIP: {$v30F} so'm\n• 90 kunlik VIP: {$v90F} so'm\n\n"
+            . "✨ Imtiyozlar: majburiy obunasiz, reklamasiz, @movieeland_group da maxsus [PREMIUM] teg va kuniga {$vipL} ta kino buyurtma!\n"
+            . "💳 Profil bo'limidan balans orqali 1 bosishda yoqishingiz yoki botda karta ({$cardI}) orqali to'lashingiz mumkin.";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [], 'model' => 'builtin-expert']);
+    }
+    if ($intent === 'balance') {
+        $rep = "💰 Balans va Bonus tizimi ({$userCtx['name']}):\n"
+            . "• Joriy balans: {$balF} so'm | Takliflar: {$userCtx['refs']} ta do'st\n"
+            . "• 🎁 Kunlik bonus: har 24 soatda +{$dRF} so'm (botdagi «Bonus & Referal» da)\n"
+            . "• 👥 Referal mukofoti: har bir do'stingiz uchun +{$rRF} so'm!\n\n"
+            . "Profil bo'limidan shaxsiy havolangizni nusxalab do'stlarga ulashing va VIP ni bepul oling!";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [], 'model' => 'builtin-expert']);
+    }
+    if ($intent === 'order') {
+        $rep = "🎬 Kino buyurtma qilish:\nAgar izlagan kino bazamizda (" . count($allMovies) . " ta) topilmasa, @movieeland_bot da «🎬 Buyurtma» tugmasini bosib kino nomini yuboring. Buyurtmangiz @movieeland_group ga tushadi va adminlarimiz tez orada yuklab beradi!";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [], 'model' => 'builtin-expert']);
+    }
+    if ($intent === 'howto') {
+        $rep = "🧭 Movie Land dan foydalanish:\n"
+            . "1) WebApp da yoki botdagi «🔍 Kino qidirish» orqali nom/kod bo'yicha toping;\n"
+            . "2) Kartochkani bosib «✈️ Botda tomosha qilish» ni bosing — bot kinoni darhol yuboradi;\n"
+            . "3) Premyeralar: @movieee_land | Muhokama va Buyurtmalar: @movieeland_group | Ega: @asliddin_akk.\n"
+            . "Yana qanday kino izlayapsiz? Janr yoki kayfiyatingizni yozing!";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => [], 'model' => 'builtin-expert']);
+    }
+    if ($intent === 'greeting') {
+        $rep = "Assalomu alaykum, {$userCtx['name']}! Men — Movie Land AI yordamchisiman. Sizga " . count($allMovies) . " ta kino/serial ichidan eng mosini topishda, shuningdek VIP ({$v7F} so'mdan), balans, bonuslar va bot funksiyalari bo'yicha to'liq yordam beraman!";
+        ml_json(['ok' => true, 'reply' => $rep, 'movies' => array_slice($allMovies, 0, 6), 'model' => 'builtin-expert']);
+    }
+
+    $rep = "«{$rawQ}» so'rovingiz bo'yicha bazamizdan eng mos " . min(6, count($picked)) . " ta kino/serialni saralab berdim. Pastdagi kartochkani bosib darhol tomosha qiling yoki yana aniqroq yozing!";
+    ml_json(['ok' => true, 'reply' => $rep, 'movies' => array_slice($picked, 0, 6), 'model' => 'builtin-expert']);
 }
 
 // ==================== ACTION: BOOTSTRAP (Default Live Catalog + Config + Genres + Trailers) ====================

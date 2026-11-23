@@ -124,7 +124,7 @@ def user_inline_dashboard(lang: str = "uz", webapp_url: str = None):
 
 
 def movie_land_ai_inline(recommended_movies: list = None, lang: str = "uz"):
-    """Movie Land AI yordamchisi uchun tezkor tavsiya va kino ochish tugmalari."""
+    """Movie Land AI yordamchisi uchun tezkor tavsiya, suhbatni tozalash va kino ochish tugmalari."""
     rows = []
     if recommended_movies:
         for m in recommended_movies[:6]:
@@ -141,27 +141,31 @@ def movie_land_ai_inline(recommended_movies: list = None, lang: str = "uz"):
         if lang == "ru":
             rows.extend([
                 [
-                    ibtn(text="🔥 Лучшие боевики", callback_data="ai_quick:боевик топ"),
-                    ibtn(text="😂 Смешная комедия", callback_data="ai_quick:комедия")
+                    ibtn(text="🔥 Лучшие боевики", callback_data="ai_quick:посоветуй лучший боевик"),
+                    ibtn(text="😂 Смешная комедия", callback_data="ai_quick:посоветуй смешную комедию")
                 ],
                 [
-                    ibtn(text="📺 Посоветуй сериал", callback_data="ai_quick:сериал"),
-                    ibtn(text="🚀 Фантастика", callback_data="ai_quick:фантастика")
+                    ibtn(text="📺 Посоветуй сериал", callback_data="ai_quick:какие сериалы есть в боте"),
+                    ibtn(text="💎 О VIP и Балансе", callback_data="ai_quick:расскажи о VIP и моем балансе")
                 ]
             ])
         else:
             rows.extend([
                 [
-                    ibtn(text="🔥 Eng zo'r jangari", callback_data="ai_quick:eng zor jangari kino"),
-                    ibtn(text="😂 Kulgili komediya", callback_data="ai_quick:kulgili komediya kino")
+                    ibtn(text="🔥 Eng zo'r jangari", callback_data="ai_quick:Menga eng zor jangari kino tavsiya qil"),
+                    ibtn(text="😂 Kulgili komediya", callback_data="ai_quick:Kulgili oilaviy komediya kino topib ber")
                 ],
                 [
-                    ibtn(text="📺 Zo'r serial tavsiya qil", callback_data="ai_quick:zor serial tavsiya qil"),
-                    ibtn(text="🚀 Fantastika va sehr", callback_data="ai_quick:fantastika sehrgar kino")
+                    ibtn(text="📺 Qaysi seriallar bor?", callback_data="ai_quick:Botda qaysi seriallar bor va eng zori qaysi"),
+                    ibtn(text="💎 VIP & Balansim", callback_data="ai_quick:VIP narxlari va mening balansim haqida aytib ber")
                 ]
             ])
+    clear_lbl = "🧹 Новый диалог" if lang == "ru" else "🧹 Yangi suhbat"
     exit_lbl = "🔙 Выйти из AI" if lang == "ru" else "🔙 AI dan chiqish"
-    rows.append([ibtn(text=exit_lbl, callback_data="exit_ai_mode", style="danger")])
+    rows.append([
+        ibtn(text=clear_lbl, callback_data="ai_clear_mem"),
+        ibtn(text=exit_lbl, callback_data="exit_ai_mode", style="danger")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1028,7 +1032,7 @@ def web_admin_panel_inline(webapp_enabled: str, webapp_url: str, trailers_cnt: i
         inline_keyboard=[
             [ibtn(text="🎬 WebApp ni ochib ko'rish", web_app=WebAppInfo(url=webapp_url), style="success")],
             [
-                ibtn(text=st_lbl, callback_data="wadm_toggle_status"),
+                ibtn(text=st_lbl, callback_data="wadm_toggle_enabled"),
                 ibtn(text=f"🎞 Treylerlar ({trailers_cnt})", callback_data="wadm_trailers", style="primary")
             ],
             [
@@ -1044,6 +1048,7 @@ def web_admin_panel_inline(webapp_enabled: str, webapp_url: str, trailers_cnt: i
                 ibtn(text="🔄 Menyuni sinxronlash", callback_data="wadm_sync_menu", style="primary")
             ],
             [
+                ibtn(text="🔒 SSL & Sayt tekshiruvi", callback_data="wadm_check_ssl"),
                 ibtn(text="🔐 WebAdmin Parol", callback_data="wadm_change_pass", style="danger")
             ]
         ]

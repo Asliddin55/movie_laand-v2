@@ -1968,11 +1968,11 @@
         <p>Kayfiyatingiz, janr yoki syujetni yozing — eng mos kinolarni topib beraman</p>
       </div>
       <div class="ai-chips no-scroll">
-        <button class="pill-chip" onclick="sendAiQuick('Eng zor jangari kino tavsiya qil')">🔥 Eng zo'r jangari</button>
+        <button class="pill-chip" onclick="sendAiQuick('Menga eng zor jangari kino tavsiya qil')">🔥 Eng zo'r jangari</button>
         <button class="pill-chip" onclick="sendAiQuick('Kulgili komediya kino topib ber')">😂 Kulgili komediya</button>
-        <button class="pill-chip" onclick="sendAiQuick('Zor serial tavsiya qil')">📺 Zo'r seriallar</button>
-        <button class="pill-chip" onclick="sendAiQuick('Fantastika va sehrgar haqida kino')">🚀 Fantastika</button>
-        <button class="pill-chip" onclick="sendAiQuick('Oilaviy multfilm topib ber')">🧸 Multfilmlar</button>
+        <button class="pill-chip" onclick="sendAiQuick('Botda qaysi seriallar bor?')">📺 Seriallar</button>
+        <button class="pill-chip" onclick="sendAiQuick('VIP narxlari va mening balansim haqida aytib ber')">💎 VIP & Balans</button>
+        <button class="pill-chip" onclick="sendAiQuick('Bot qanday ishlaydi va buyurtma qanday beriladi?')">🧭 Yordam</button>
       </div>
       <div class="ai-messages" id="aiMessages">
         <div class="ai-msg bot">Assalomu alaykum! Men — <b>Movie Land AI</b>. Qanday kino yoki serial izlayapsiz? Janr, yil, kayfiyat yoki syujetni yozing — bazamizdan eng saralarini topib beraman! 🎬</div>
@@ -1988,6 +1988,13 @@
   <div id="toast" class="toast"></div>
 
   <script>
+    function safeGetLS(k, defVal) {
+      try { const v = window.localStorage.getItem(k); return v === null ? defVal : v; } catch (e) { return defVal; }
+    }
+    function safeSetLS(k, v) {
+      try { window.localStorage.setItem(k, v); } catch (e) {}
+    }
+
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     if (tg) {
       try {
@@ -1995,6 +2002,9 @@
         tg.expand();
       } catch (e) {}
     }
+
+    let _initFavs = [];
+    try { _initFavs = JSON.parse(safeGetLS('ml_favs', '[]')) || []; } catch (e) { _initFavs = []; }
 
     const STATE = {
       apiMode: 'php', // 'php' -> api.php, 'py' -> /api/...
@@ -2014,7 +2024,7 @@
       movies: [],
       genres: [],
       trailers: [],
-      favorites: new Set(JSON.parse(localStorage.getItem('ml_favs') || '[]')),
+      favorites: new Set(_initFavs),
       user: null,
       activeView: 'home',
       activeGenreKey: '',
@@ -2023,6 +2033,7 @@
       modalEp: null,
       selectedPlanDays: 30,
       showVipExtend: false,
+      aiHistory: [],
     };
 
     const GENRE_THEMES = [
@@ -2085,7 +2096,7 @@
     // ==================== THEME ====================
     function applyTheme(theme) {
       document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('ml_theme', theme);
+      safeSetLS('ml_theme', theme);
       const sw = document.getElementById('darkModeSwitch');
       if (sw) sw.classList.toggle('on', theme === 'dark');
       if (tg) {
@@ -2102,7 +2113,7 @@
       applyTheme(cur === 'dark' ? 'light' : 'dark');
     }
 
-    applyTheme(localStorage.getItem('ml_theme') || 'dark');
+    applyTheme(safeGetLS('ml_theme', 'dark'));
 
     // ==================== NAVIGATION ====================
     function switchView(name, anchor) {
@@ -2233,7 +2244,7 @@
             STATE.user = Object.assign({}, STATE.user || {}, j.user);
             if (Array.isArray(j.user.favorites)) {
               STATE.favorites = new Set(j.user.favorites.map(String));
-              localStorage.setItem('ml_favs', JSON.stringify([...STATE.favorites]));
+              safeSetLS('ml_favs', JSON.stringify([...STATE.favorites]));
             }
             renderProfile();
           }
@@ -2829,7 +2840,7 @@
         STATE.favorites.add(code);
         showToast('❤️ Sevimlilarga qo\'shildi!');
       }
-      localStorage.setItem('ml_favs', JSON.stringify([...STATE.favorites]));
+      safeSetLS('ml_favs', JSON.stringify([...STATE.favorites]));
       updateModalFavUI();
       if (STATE.activeView === 'favorites') renderFavorites();
       document.getElementById('profFavCount').textContent = STATE.favorites.size;
@@ -2949,10 +2960,23 @@
         const r = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: q, lang: 'uz' }),
+          body: JSON.stringify({
+            query: q,
+            lang: 'uz',
+            initData: (tg && tg.initData) ? tg.initData : '',
+            history: STATE.aiHistory.slice(-8),
+          }),
         });
         const j = await r.json();
-        loadDiv.textContent = (j && j.reply) ? String(j.reply).replace(/<[^>]+>/g, '') : '🤖 Mos kinolar topildi:';
+        const rawReply = (j && j.reply) ? String(j.reply) : '🤖 Mos kinolar topildi:';
+        const cleanReply = rawReply.replace(/<[^>]+>/g, '');
+        // Xavfsiz qalin matn (**...**) formatlash
+        loadDiv.innerHTML = esc(cleanReply).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+
+        STATE.aiHistory.push({ role: 'user', text: q });
+        STATE.aiHistory.push({ role: 'model', text: cleanReply.slice(0, 700) });
+        if (STATE.aiHistory.length > 12) STATE.aiHistory = STATE.aiHistory.slice(-12);
+
         if (j && Array.isArray(j.movies) && j.movies.length) {
           const grid = document.createElement('div');
           grid.className = 'ai-recs-grid';
